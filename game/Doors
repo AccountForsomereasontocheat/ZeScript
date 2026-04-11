@@ -694,7 +694,7 @@ _addPhase("UI - EssentialsTab", function()
                 if godModeEnabled then disableGodMode() end
             end
         end, "Auto GodMode Toggle")
-    end, "Auto-enable GodMode when entities are within 325 studs")
+    end, "Auto-enable GodMode when entities are within 325 studs (DONT CROUCH OR ELSE YOU WILL DIE)")
 
 end)
 
