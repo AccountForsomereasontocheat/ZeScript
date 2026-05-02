@@ -1,0 +1,646 @@
+if getgenv().ZeScriptLoaded then
+    warn("ZeScript is already running! Please destroy the existing instance first.")
+    return
+end
+getgenv().ZeScriptLoaded = true
+local Players           = game:GetService("Players")
+local UserInputService  = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer       = Players.LocalPlayer
+local Window = nil
+local function safeCall(func, errorContext)
+    local success, err = pcall(func)
+    if not success then
+        local msg = "[ZeScript Forsaken - " .. (errorContext or "Unknown") .. "]: " .. tostring(err)
+        if Window and Window.Notify then
+            Window:Notify({ Text = msg, Duration = 5, Type = "Error" })
+        else
+            warn(msg)
+        end
+    end
+    return success
+end
+local function isGeneratorComplete(model)
+    local progress = model:FindFirstChild("Progress")
+    return progress and progress:IsA("NumberValue") and progress.Value >= 100
+end
+local rawSource = game:HttpGet("https://raw.githubusercontent.com/XasonYTB/XaLib/refs/heads/main/testing%20rahhh")
+local compiledLib, compileErr = loadstring(rawSource)
+assert(compiledLib, "[ZeScript] Library failed to compile: " .. tostring(compileErr))
+local Library = compiledLib()
+Window = Library:CreateWindow({
+    Title    = "ZeScript Forsaken",
+    Size     = UserInputService.TouchEnabled and Vector2.new(500, 400) or Vector2.new(700, 500),
+    MinSize  = Vector2.new(500, 400),
+    MaxSize  = Vector2.new(900, 700),
+    Keybind  = Enum.KeyCode.RightShift,
+    Theme    = "Purple",
+    SaveFile = "ZeScriptForsaken_config.json",
+})
+local hookSupported = false
+do
+    local ok, err = pcall(function()
+        local mt = getrawmetatable(game)
+        if not mt or not mt.__namecall then error("no __namecall") end
+        if not hookmetamethod then error("no hookmetamethod") end
+        local old
+        old = hookmetamethod(game, "__namecall", function(self, ...) return old(self, ...) end)
+        hookSupported = true
+        pcall(function() hookmetamethod(game, "__namecall", old) end)
+    end)
+    if not ok then warn("[ZeScript Forsaken] Hook test FAILED: " .. tostring(err)) end
+    task.delay(1, function()
+        if hookSupported then
+            Window:Notify({ Text = "Hook support detected — Godmode available", Duration = 4, Type = "Success" })
+        else
+            Window:Notify({ Text = "No hook support — Godmode unavailable on this executor", Duration = 7, Type = "Warning" })
+        end
+    end)
+end
+local MainCategory     = Window:CreateCategory("Main",     "⭐")
+local ESPCategory      = Window:CreateCategory("ESP",      "👁️")
+local SettingsCategory = Window:CreateCategory("Settings", "⚙️")
+local ExploitsTab = MainCategory:CreateTab("Exploits", "⚡")
+local ESPTab      = ESPCategory:CreateTab("ESP",       "👁️")
+local blocking             = false
+local hooksInitialized     = false
+local godmodeKeyConnection = nil
+local godmodeAutoLoop      = nil
+local godmodeMode          = "Manual (X)"
+local glitching            = false
+local function initGodmodeHook()
+    if hooksInitialized or not hookSupported then return end
+    safeCall(function()
+        local unreliableRemote = ReplicatedStorage
+            :WaitForChild("Modules", 10)
+            :WaitForChild("Network", 10)
+            :WaitForChild("Network", 10)
+            :WaitForChild("UnreliableRemoteEvent", 10)
+        if not unreliableRemote then error("UnreliableRemoteEvent not found") end
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+            local method = getnamecallmethod()
+            if method == "FireServer" and self == unreliableRemote then
+                local args = table.pack(...)
+                if (args[1] == 1 or args[1] == 2) and blocking then return end
+            end
+            return oldNamecall(self, ...)
+        end)
+        hooksInitialized = true
+    end, "Init Godmode Hook")
+end
+local function doGlitch()
+    if glitching then return end
+    glitching = true
+    local char = LocalPlayer.Character
+    if char and char.PrimaryPart then
+        local realCF = char.PrimaryPart.CFrame
+        char.PrimaryPart.CFrame = realCF * CFrame.new(0, 500, 0)
+        task.wait(0.06)
+        char.PrimaryPart.CFrame = realCF * CFrame.new(0, 500, 0)
+        blocking = true
+        char.PrimaryPart.CFrame = realCF
+        Window:Notify({ Text = "Godmode Activated", Duration = 2, Type = "Success" })
+    end
+    glitching = false
+end
+local function disableGlitch()
+    blocking = false
+    Window:Notify({ Text = "Godmode Deactivated", Duration = 2, Type = "Warning" })
+end
+local function stopAutoLoop()
+    if godmodeAutoLoop then
+        task.cancel(godmodeAutoLoop)
+        godmodeAutoLoop = nil
+    end
+end
+local function startAutoLoop()
+    stopAutoLoop()
+    godmodeAutoLoop = task.spawn(function()
+        while Window.Flags["Godmode"] do
+            task.wait(0.05)
+            if godmodeMode ~= "Automatic" then continue end
+            safeCall(function()
+                local char = LocalPlayer.Character
+                if not char or not char.PrimaryPart then return end
+                local queryHitbox = char:FindFirstChild("QueryHitbox")
+                if not queryHitbox then return end
+                local dist = (queryHitbox.Position - char.PrimaryPart.Position).Magnitude
+                if dist <= 50 and not glitching and not char.PrimaryPart.Anchored then
+                    blocking = false
+                    task.wait(0.2)
+                    if Window.Flags["Godmode"] and godmodeMode == "Automatic" then
+                        task.spawn(doGlitch)
+                    end
+                end
+            end, "AutoLoop Tick")
+        end
+    end)
+end
+local godmodeApi
+if hookSupported then
+    ExploitsTab:Dropdown(
+        "Godmode Mode",
+        { "Manual (X)", "Automatic" },
+        function(selected)
+            if selected["Automatic"] then
+                godmodeMode = "Automatic"
+            else
+                godmodeMode = "Manual (X)"
+            end
+            if not Window.Flags["Godmode"] then return end
+            if godmodeMode == "Automatic" then
+                if godmodeKeyConnection then
+                    godmodeKeyConnection:Disconnect()
+                    godmodeKeyConnection = nil
+                end
+                blocking = false
+                task.spawn(doGlitch)
+                startAutoLoop()
+                Window:Notify({ Text = "Switched to Automatic — QueryHitbox drift monitor active", Duration = 3, Type = "Success" })
+            else
+                stopAutoLoop()
+                if blocking then disableGlitch() end
+                if godmodeKeyConnection then godmodeKeyConnection:Disconnect() end
+                godmodeKeyConnection = UserInputService.InputBegan:Connect(function(input, gp)
+                    if gp then return end
+                    if input.KeyCode == Enum.KeyCode.X and Window.Flags["Godmode"] then
+                        if blocking then disableGlitch() else task.spawn(doGlitch) end
+                    end
+                end)
+                Window:Notify({ Text = "Switched to Manual — Press X to toggle", Duration = 3, Type = "Success" })
+            end
+        end,
+        "Manual = press X to arm/disarm | Automatic = re-arms when QueryHitbox drifts >10 studs"
+    )
+    godmodeApi = ExploitsTab:Toggle(
+        "Godmode",
+        false,
+        function(enabled)
+            safeCall(function()
+                if enabled then
+                    initGodmodeHook()
+                    if godmodeMode == "Automatic" then
+                        if godmodeKeyConnection then
+                            godmodeKeyConnection:Disconnect()
+                            godmodeKeyConnection = nil
+                        end
+                        task.spawn(doGlitch)
+                        startAutoLoop()
+                        Window:Notify({ Text = "Godmode ON — Automatic mode active", Duration = 3, Type = "Success" })
+                    else
+                        if godmodeKeyConnection then godmodeKeyConnection:Disconnect() end
+                        godmodeKeyConnection = UserInputService.InputBegan:Connect(function(input, gp)
+                            if gp then return end
+                            if input.KeyCode == Enum.KeyCode.X and Window.Flags["Godmode"] then
+                                if blocking then disableGlitch() else task.spawn(doGlitch) end
+                            end
+                        end)
+                        Window:Notify({ Text = "Godmode ON — Press X to activate", Duration = 3, Type = "Success" })
+                    end
+                else
+                    stopAutoLoop()
+                    if godmodeKeyConnection then
+                        godmodeKeyConnection:Disconnect()
+                        godmodeKeyConnection = nil
+                    end
+                    if blocking then disableGlitch() end
+                    Window:Notify({ Text = "Godmode Disabled", Duration = 2, Type = "Warning" })
+                end
+            end, "Godmode Toggle")
+        end,
+        "Toggle godmode — mode controlled by the dropdown above"
+    )
+else
+    ExploitsTab:Label("Godmode requires hook support (unsupported executor)")
+end
+local infStaminaLoop = nil
+local infStaminaApi = ExploitsTab:Toggle(
+    "Infinite Stamina",
+    false,
+    function(enabled)
+        safeCall(function()
+            if enabled then
+                infStaminaLoop = task.spawn(function()
+                    while Window.Flags["Infinite Stamina"] do
+                        task.wait(0.01)
+                        safeCall(function()
+                            local ok, Sprint = pcall(function()
+                                return require(ReplicatedStorage.Systems.Character.Game.Sprinting)
+                            end)
+                            if ok and Sprint then
+                                Sprint.StaminaLossDisabled = true
+                                Sprint.Stamina = Sprint.MaxStamina
+                                Sprint.timeUntilStaminaRecovers = 0
+                            end
+                        end, "Inf Stamina Tick")
+                    end
+                end)
+                Window:Notify({ Text = "Infinite Stamina Enabled", Duration = 2, Type = "Success" })
+            else
+                if infStaminaLoop then task.cancel(infStaminaLoop); infStaminaLoop = nil end
+                safeCall(function()
+                    local ok, Sprint = pcall(function()
+                        return require(ReplicatedStorage.Systems.Character.Game.Sprinting)
+                    end)
+                    if ok and Sprint then Sprint.StaminaLossDisabled = false end
+                end, "Restore Stamina")
+                Window:Notify({ Text = "Infinite Stamina Disabled", Duration = 2, Type = "Warning" })
+            end
+        end, "Inf Stamina Toggle")
+    end,
+    "Disables stamina loss and keeps stamina at max"
+)
+local speedBoostLoop   = nil
+local speedBoostAmount = 1
+local speedBoostApi    = ExploitsTab:Toggle(
+    "Speed Boost",
+    false,
+    function(enabled)
+        safeCall(function()
+            if enabled then
+                speedBoostLoop = task.spawn(function()
+                    local RunService = game:GetService("RunService")
+                    while Window.Flags["Speed Boost"] do
+                        local dt = RunService.RenderStepped:Wait()
+                        safeCall(function()
+                            local char = LocalPlayer.Character
+                            if not char or not char.PrimaryPart then return end
+                            local humanoid = char:FindFirstChildOfClass("Humanoid")
+                            if not humanoid or humanoid.MoveDirection.Magnitude == 0 then return end
+                            if char.PrimaryPart.Anchored then return end
+                            local cam = workspace.CurrentCamera
+                            local camCF = CFrame.new(Vector3.zero, Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z))
+                            local inputDir = humanoid.MoveDirection
+                            local localDir = camCF:VectorToObjectSpace(inputDir)
+                            local offset = camCF:VectorToWorldSpace(localDir) * speedBoostAmount * dt * 60
+                            char.PrimaryPart.CFrame = char.PrimaryPart.CFrame + offset
+                        end, "Speed Boost Tick")
+                    end
+                end)
+                Window:Notify({ Text = "Speed Boost Enabled", Duration = 2, Type = "Success" })
+            else
+                if speedBoostLoop then task.cancel(speedBoostLoop); speedBoostLoop = nil end
+                Window:Notify({ Text = "Speed Boost Disabled", Duration = 2, Type = "Warning" })
+            end
+        end, "Speed Boost Toggle")
+    end,
+    "Adds extra CFrame movement in the direction you're looking"
+)
+ExploitsTab:Slider(
+    "Speed Amount",
+    1, 10, 1,
+    function(value)
+        speedBoostAmount = value
+    end,
+    "How much extra movement is applied per frame"
+)
+local autoGenLoop = nil
+local autoGenApi = ExploitsTab:Toggle(
+    "Auto Generator",
+    false,
+    function(enabled)
+        safeCall(function()
+            if enabled then
+                autoGenLoop = task.spawn(function()
+                    while Window.Flags["Auto Generator"] do
+                        safeCall(function()
+                            local char = LocalPlayer.Character
+                            if not char or not char.PrimaryPart then return end
+                            local playerPos  = char.PrimaryPart.Position
+                            local mapFolder  = workspace.Map.Ingame.Map
+                            local closestGen, closestDist = nil, math.huge
+                            for _, model in pairs(mapFolder:GetChildren()) do
+                                if model.Name == "Generator" and not isGeneratorComplete(model) then
+                                    local pp = model.PrimaryPart or model:FindFirstChildOfClass("BasePart")
+                                    if pp then
+                                        local dist = (pp.Position - playerPos).Magnitude
+                                        if dist < closestDist then
+                                            closestDist = dist
+                                            closestGen  = model
+                                        end
+                                    end
+                                end
+                            end
+                            if closestGen then
+                                local re = closestGen:FindFirstChild("Remotes")
+                                    and closestGen.Remotes:FindFirstChild("RE")
+                                if re then
+                                    re:FireServer()
+                                    print("[AutoGen] Fired RE on:", closestGen.Name, "| Dist:", math.round(closestDist))
+                                end
+                            end
+                        end, "AutoGen Tick")
+                        task.wait(2.1)
+                    end
+                end)
+                Window:Notify({ Text = "Auto Generator Enabled", Duration = 2, Type = "Success" })
+            else
+                if autoGenLoop then task.cancel(autoGenLoop); autoGenLoop = nil end
+                Window:Notify({ Text = "Auto Generator Disabled", Duration = 2, Type = "Warning" })
+            end
+        end, "Auto Generator Toggle")
+    end,
+    "Automatically fires the closest generator remote every 2 seconds"
+)
+local genESPLoop    = nil
+local genHighlights = {}
+local function clearGenESP()
+    for _, h in pairs(genHighlights) do pcall(function() h:Destroy() end) end
+    genHighlights = {}
+end
+local genESPApi = ESPTab:Toggle(
+    "Generator ESP",
+    false,
+    function(enabled)
+        safeCall(function()
+            if enabled then
+                genESPLoop = task.spawn(function()
+                    while Window.Flags["Generator ESP"] do
+                        safeCall(function()
+                            clearGenESP()
+                            for _, model in pairs(workspace.Map.Ingame.Map:GetChildren()) do
+                                if model.Name == "Generator" and not isGeneratorComplete(model) then
+                                    local h = Instance.new("Highlight")
+                                    h.FillColor           = Color3.fromRGB(255, 200, 0)
+                                    h.OutlineColor        = Color3.fromRGB(255, 255, 0)
+                                    h.FillTransparency    = 0.5
+                                    h.OutlineTransparency = 0
+                                    h.Adornee             = model
+                                    h.Parent              = model
+                                    table.insert(genHighlights, h)
+                                end
+                            end
+                        end, "Gen ESP Tick")
+                        task.wait(3)
+                    end
+                end)
+                Window:Notify({ Text = "Generator ESP Enabled", Duration = 2, Type = "Success" })
+            else
+                clearGenESP()
+                if genESPLoop then task.cancel(genESPLoop); genESPLoop = nil end
+                Window:Notify({ Text = "Generator ESP Disabled", Duration = 2, Type = "Warning" })
+            end
+        end, "Gen ESP Toggle")
+    end,
+    "Highlights incomplete generators yellow"
+)
+local itemESPLoop    = nil
+local itemHighlights = {}
+local ITEM_DEFS = {
+    { name = "Medkit",    color = Color3.fromRGB(0, 255, 100) },
+    { name = "BloxyCola", color = Color3.fromRGB(0, 100, 255) },
+}
+local function clearItemESP()
+    for _, h in pairs(itemHighlights) do pcall(function() h:Destroy() end) end
+    itemHighlights = {}
+end
+local function applyItemESP()
+    clearItemESP()
+    local mapFolder = workspace:FindFirstChild("Map")
+    if mapFolder then mapFolder = mapFolder:FindFirstChild("Ingame") end
+    if mapFolder then mapFolder = mapFolder:FindFirstChild("Map") end
+    if not mapFolder then return end
+    for _, itemDef in pairs(ITEM_DEFS) do
+        for _, model in pairs(mapFolder:GetChildren()) do
+            if model.Name == itemDef.name then
+                local h = Instance.new("Highlight")
+                h.FillColor           = itemDef.color
+                h.OutlineColor        = itemDef.color
+                h.FillTransparency    = 0.4
+                h.OutlineTransparency = 0
+                h.Adornee             = model
+                h.Parent              = model
+                table.insert(itemHighlights, h)
+            end
+        end
+    end
+end
+local itemESPApi = ESPTab:Toggle(
+    "Item ESP (Medkit & BloxyCola)",
+    false,
+    function(enabled)
+        safeCall(function()
+            if enabled then
+                applyItemESP()
+                itemESPLoop = task.spawn(function()
+                    while Window.Flags["Item ESP (Medkit & BloxyCola)"] do
+                        task.wait(3)
+                        if Window.Flags["Item ESP (Medkit & BloxyCola)"] then
+                            safeCall(applyItemESP, "Item ESP Refresh")
+                        end
+                    end
+                end)
+                Window:Notify({ Text = "Item ESP Enabled", Duration = 2, Type = "Success" })
+            else
+                clearItemESP()
+                if itemESPLoop then task.cancel(itemESPLoop); itemESPLoop = nil end
+                Window:Notify({ Text = "Item ESP Disabled", Duration = 2, Type = "Warning" })
+            end
+        end, "Item ESP Toggle")
+    end,
+    "Medkits = green  |  BloxyCola = blue"
+)
+local survivorESPLoop    = nil
+local survivorHighlights = {}
+local function clearSurvivorESP()
+    for _, h in pairs(survivorHighlights) do pcall(function() h:Destroy() end) end
+    survivorHighlights = {}
+end
+local function applySurvivorESP()
+    clearSurvivorESP()
+    local folder = workspace:FindFirstChild("Players") and workspace.Players:FindFirstChild("Survivors")
+    if not folder then return end
+    for _, model in pairs(folder:GetChildren()) do
+        if model == LocalPlayer.Character then continue end
+        local h = Instance.new("Highlight")
+        h.FillColor           = Color3.fromRGB(0, 200, 255)
+        h.OutlineColor        = Color3.fromRGB(0, 255, 255)
+        h.FillTransparency    = 0.4
+        h.OutlineTransparency = 0
+        h.Adornee             = model
+        h.Parent              = model
+        table.insert(survivorHighlights, h)
+    end
+end
+local survivorESPApi = ESPTab:Toggle(
+    "Survivor ESP",
+    false,
+    function(enabled)
+        safeCall(function()
+            if enabled then
+                applySurvivorESP()
+                survivorESPLoop = task.spawn(function()
+                    while Window.Flags["Survivor ESP"] do
+                        task.wait(1)
+                        if Window.Flags["Survivor ESP"] then
+                            safeCall(applySurvivorESP, "Survivor ESP Refresh")
+                        end
+                    end
+                end)
+                Window:Notify({ Text = "Survivor ESP Enabled", Duration = 2, Type = "Success" })
+            else
+                clearSurvivorESP()
+                if survivorESPLoop then task.cancel(survivorESPLoop); survivorESPLoop = nil end
+                Window:Notify({ Text = "Survivor ESP Disabled", Duration = 2, Type = "Warning" })
+            end
+        end, "Survivor ESP Toggle")
+    end,
+    "Highlights all survivors in blue"
+)
+local killerESPLoop    = nil
+local killerHighlights = {}
+local function clearKillerESP()
+    for _, h in pairs(killerHighlights) do pcall(function() h:Destroy() end) end
+    killerHighlights = {}
+end
+local function applyKillerESP()
+    clearKillerESP()
+    local folder = workspace:FindFirstChild("Players") and workspace.Players:FindFirstChild("Killers")
+    if not folder then return end
+    for _, model in pairs(folder:GetChildren()) do
+        if model == LocalPlayer.Character then continue end
+        local h = Instance.new("Highlight")
+        h.FillColor           = Color3.fromRGB(255, 50, 50)
+        h.OutlineColor        = Color3.fromRGB(255, 0, 0)
+        h.FillTransparency    = 0.4
+        h.OutlineTransparency = 0
+        h.Adornee             = model
+        h.Parent              = model
+        table.insert(killerHighlights, h)
+    end
+end
+local killerESPApi = ESPTab:Toggle(
+    "Killer ESP",
+    false,
+    function(enabled)
+        safeCall(function()
+            if enabled then
+                applyKillerESP()
+                killerESPLoop = task.spawn(function()
+                    while Window.Flags["Killer ESP"] do
+                        task.wait(1)
+                        if Window.Flags["Killer ESP"] then
+                            safeCall(applyKillerESP, "Killer ESP Refresh")
+                        end
+                    end
+                end)
+                Window:Notify({ Text = "Killer ESP Enabled", Duration = 2, Type = "Success" })
+            else
+                clearKillerESP()
+                if killerESPLoop then task.cancel(killerESPLoop); killerESPLoop = nil end
+                Window:Notify({ Text = "Killer ESP Disabled", Duration = 2, Type = "Warning" })
+            end
+        end, "Killer ESP Toggle")
+    end,
+    "Highlights all killers in red"
+)
+SettingsCategory:ThemePicker(
+    "UI Theme",
+    function(themeName, _)
+        safeCall(function()
+            Window:Notify({ Text = "Theme → " .. themeName, Duration = 2, Type = "Success" })
+            Window:SaveConfig()
+        end, "Theme Picker")
+    end,
+    "Choose a colour theme"
+)
+SettingsCategory:Keybind(
+    "Toggle UI Key",
+    Enum.KeyCode.RightShift,
+    function(key, pressed)
+        if pressed then
+            if Window:IsOpen() then Window:Hide() else Window:Show() end
+        end
+    end,
+    "Key to show/hide the UI"
+)
+SettingsCategory:Divider()
+SettingsCategory:Button(
+    "💾  Save Config",
+    function()
+        safeCall(function()
+            local ok, path = Window:SaveConfig()
+            Window:Notify({
+                Text     = ok and ("Config saved → " .. tostring(path)) or "Save failed — writefile unavailable",
+                Duration = 3,
+                Type     = ok and "Success" or "Error"
+            })
+        end, "Save Config Button")
+    end,
+    "Serialise all toggle/slider/keybind states to a JSON file"
+)
+SettingsCategory:Button(
+    "📂  Load Config",
+    function()
+        safeCall(function()
+            local ok, err = Window:LoadConfig()
+            Window:Notify({
+                Text     = ok and "Config loaded!" or ("Load failed: " .. tostring(err)),
+                Duration = 3,
+                Type     = ok and "Success" or "Warning"
+            })
+        end, "Load Config Button")
+    end,
+    "Restore saved states from the JSON file"
+)
+SettingsCategory:Divider()
+SettingsCategory:Button(
+    "🙈  Hide UI",
+    function()
+        safeCall(function() Window:Hide() end, "Hide UI")
+    end,
+    "Hide UI — press toggle key to show again"
+)
+SettingsCategory:Button(
+    "💣  Destroy Script",
+    function()
+        safeCall(function()
+            stopAutoLoop()
+            if godmodeKeyConnection then godmodeKeyConnection:Disconnect(); godmodeKeyConnection = nil end
+            if infStaminaLoop       then task.cancel(infStaminaLoop);       infStaminaLoop       = nil end
+            if speedBoostLoop       then task.cancel(speedBoostLoop);       speedBoostLoop       = nil end
+            if autoGenLoop          then task.cancel(autoGenLoop);          autoGenLoop          = nil end
+            if genESPLoop           then task.cancel(genESPLoop);           genESPLoop           = nil end
+            if itemESPLoop          then task.cancel(itemESPLoop);          itemESPLoop          = nil end
+            if survivorESPLoop      then task.cancel(survivorESPLoop);      survivorESPLoop      = nil end
+            if killerESPLoop        then task.cancel(killerESPLoop);        killerESPLoop        = nil end
+            clearGenESP()
+            clearItemESP()
+            clearSurvivorESP()
+            clearKillerESP()
+            blocking = false
+            pcall(function()
+                local Sprint = require(ReplicatedStorage.Systems.Character.Game.Sprinting)
+                Sprint.StaminaLossDisabled = false
+            end)
+            if godmodeApi    then pcall(function() godmodeApi:SetValue(false)    end) end
+            if infStaminaApi  then pcall(function() infStaminaApi:SetValue(false)  end) end
+            if speedBoostApi  then pcall(function() speedBoostApi:SetValue(false)  end) end
+            if autoGenApi    then pcall(function() autoGenApi:SetValue(false)    end) end
+            if genESPApi     then pcall(function() genESPApi:SetValue(false)      end) end
+            if itemESPApi    then pcall(function() itemESPApi:SetValue(false)     end) end
+            if survivorESPApi then pcall(function() survivorESPApi:SetValue(false) end) end
+            if killerESPApi   then pcall(function() killerESPApi:SetValue(false)   end) end
+            Window:SaveConfig()
+            getgenv().ZeScriptLoaded = false
+            Window:Notify({ Text = "Script destroyed!", Duration = 3, Type = "Warning" })
+            task.delay(0.5, function() if Window.Destroy then Window:Destroy() end end)
+        end, "Destroy Script")
+    end,
+    "Stop all features, save state, and remove the UI"
+)
+SettingsCategory:Divider()
+SettingsCategory:Label("ZeScript Forsaken v1.5")
+SettingsCategory:Label("Game: Forsaken")
+Window:AutoSave(60)
+task.delay(0.5, function()
+    safeCall(function()
+        local ok = Window:LoadConfig()
+        if ok then
+            Window:Notify({ Text = "Last session restored", Duration = 3, Type = "Success" })
+        end
+    end, "Auto Load Config")
+end)
+task.wait(0.2)
+Window:Show()
