@@ -1,0 +1,2615 @@
+if getgenv().ZeScriptLoaded then
+    warn("ZeScript is already running! Please destroy the existing instance first.")
+    return
+end
+getgenv().ZeScriptLoaded = true
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Window = nil
+local Library = nil
+local isMobile = UserInputService.TouchEnabled
+
+local _logFile = "ZeScript_LoadLog.txt"
+local function _log(msg)
+    pcall(function()
+        local existing = ""
+        if isfile and isfile(_logFile) then existing = readfile(_logFile) end
+        if writefile then writefile(_logFile, existing .. msg .. "\n") end
+    end)
+    warn(msg)
+end
+
+-- Unified notify helper — maps old Type field to Obsidian icons
+local function notify(text, duration, notifType)
+    local icon = nil
+    if notifType == "Success" then icon = "check"
+    elseif notifType == "Error"   then icon = "x"
+    elseif notifType == "Warning" then icon = "triangle-alert"
+    end
+    if Library then
+        pcall(function()
+            Library:Notify({
+                Title       = "ZeScript",
+                Description = text,
+                Time        = duration or 4,
+                Icon        = icon,
+            })
+        end)
+    else
+        warn("[ZeScript Notify]: " .. text)
+    end
+end
+
+local function safeCall(func, errorContext)
+    local success, err = pcall(func)
+    if not success then
+        local errorMsg = "[ZeScript Error - " .. (errorContext or "Unknown") .. "]: " .. tostring(err)
+        _log("[" .. os.date("%H:%M:%S") .. "] " .. errorMsg)
+        notify(errorMsg, 5, "Error")
+    end
+    return success
+end
+
+local httpRequest = (syn and syn.request) or http_request or request
+if not httpRequest then
+    warn("Your executor doesn't support HTTP requests! Discord features disabled.")
+    httpRequest = function() return nil, "no http support" end
+end
+
+local DISCORD_API_URL = "https://5e6a4ce1-65e1-49da-a450-ac983707fc3b-00-s6e0zpq7bs82.janeway.replit.dev:3000/"
+local GAME_ID = tostring(game.JobId)
+
+-- Load Obsidian
+Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/deividcomsono/Obsidian/refs/heads/main/Library.lua"))()
+
+Window = Library:CreateWindow({
+    Title         = "ZeScript's Doors",
+    Footer        = "v1.8",
+    ToggleKeybind = Enum.KeyCode.RightShift,
+    AutoShow      = false,
+})
+
+local _phases = {}
+local _phaseNames = {}
+local function _addPhase(name, fn)
+    table.insert(_phases, fn)
+    table.insert(_phaseNames, name)
+end
+
+local function _runPhases()
+    pcall(function() if writefile then writefile(_logFile, "=== ZeScript Load Log ===\n") end end)
+    for i, fn in ipairs(_phases) do
+        local name = _phaseNames[i] or ("Phase " .. i)
+        _log("[Phase " .. i .. "/" .. #_phases .. "] Starting: " .. name)
+        local ok, err = pcall(fn)
+        if not ok then
+            local msg = "[Phase " .. i .. " FAILED] " .. name .. ": " .. tostring(err)
+            _log(msg)
+            pcall(function()
+                Library:Notify({ Title = "Phase Error", Description = msg, Time = 10, Icon = "x" })
+            end)
+        else
+            _log("[Phase " .. i .. "] OK: " .. name)
+        end
+        task.wait()
+    end
+    _log("[ZeScript] All phases complete. Showing window.")
+    wait(0.2)
+    Window:Toggle(true)
+end
+
+-- Hoisted cross-phase variables
+local hookSupported = false
+local currentFloor = "Unknown"
+local Settings
+local SaveFileName = "ZeScriptDoors_Settings.json"
+local godModeEnabled = false
+local godModeConnection = nil
+local godModeSaved = {}
+local godModeAutoEnabled = false
+local doorReachEnabled = false
+local doorReachDistance = 25
+local speedEnabled = false
+local speedValue = 16
+local originalWalkSpeed = 16
+local fullbrightEnabled = false
+local originalLighting = {}
+local lightingConnection = nil
+local spoofCrouchEnabled = false
+local antiEyesEnabled = false
+local screechDisabled = false
+local antiHeartbeatEnabled = false
+local antiA90Enabled = false
+local hooksInitialized = false
+local antiGKEnabled = false
+local figureGodModeEnabled = false
+local objectBypassEnabled = false
+local noAccelEnabled = false
+local entityPathingEnabled = false
+local autoProxiEnabled = false
+local autoProxiInstant = true
+local autoProxiKey = nil
+local cachedPrompts = {}
+local promptCacheTime = 0
+local espEnabled = nil
+local espHighlights = {}
+local entityNotifierEnabled = false
+local discordConnected = false
+local clonedCollision = nil
+local originalHrpProps = nil
+local originalCameraType = nil
+local originalCameraSubject = nil
+local antiSpeedEnabled = true
+local antiSpeedLoop = nil
+local bypassEnabled = false
+local autoProxiCooldowns = {}
+local isAutoProxiKeyHeld = false
+
+-- Groupbox references (Obsidian: Window -> Tab -> Groupbox -> Element)
+local EssentialsBox
+local ProtectionBox
+local UniversalBox
+local InteractBox
+local ESPBox
+local DisplayBox
+local SettingsBox
+local SettingsInfoBox
+
+-- Forward declarations
+local startAntiSpeedBypass
+local detectFloor
+local spoofCrouchLoop
+local doorReachLoop
+local figureGodModeLoop
+local bypassLoop
+local godModeDistanceLoop
+local noAccelLoop
+local screechOriginalParent
+local autoProxiLoop
+local autoFinishDailyLoop
+local espUpdateLoop
+local anticheatManipLoop
+local speedLoop
+local antiGKLoop
+local antiEyesLoop
+local antiDronesLoop
+local autoForgetmenotsConn
+local antiAlmaChildAddedConn
+local scribblesChildAddedConn
+local noclipEnabled = false
+local noclipInsideWall = false
+local noclipSteppedConn = nil
+local noclipCharConn = nil
+local clearESP
+local destroyScript
+local restoreOriginalGodMode
+local autoProxiToggle
+local createDoorESP
+local createObjectiveESP
+local createEntityESP
+local startESPUpdateLoop
+local runAutoProxi
+local firePrompt
+local rebuildPromptCache
+local PROMPT_CACHE_TTL = 1.5
+local saveOriginalGodMode
+local applyGodMode
+local teleportUp
+local startGodModeLoop
+local stopGodModeLoop
+local enableGodMode
+local disableGodMode
+local checkEntityDistance
+local saveSettings
+local loadSettings
+local getDiscordUsername
+local toggleLights
+local freezePlayer
+local spectatePlayer
+local stopSpectating
+local getAllPlayers
+local sendToDiscord
+local checkDiscordCommands
+local registerWithDiscord
+local initHooks
+local getModelPosition
+local enableFakeGKCamera
+local disableFakeGKCamera
+local enableAntiGroundskeeper
+local disableAntiGroundskeeper
+local checkGroundskeeper
+local getFigurePosition
+local enableFakeCamera
+local disableFakeCamera
+local enableFigureGodMode
+local disableFigureGodMode
+local checkFigureDistance
+local setupPathfindNodes
+local shouldInteract
+local getPromptPosition
+local hasESPHighlight
+local addESPToObject
+local cleanupDestroyedESP
+local createPlayerESP
+local maxSpeedValue
+
+-- =============================================================================
+_addPhase("Hook check", function()
+    hookSupported = false
+    local hookfunc = hookfunction or replaceclosure or hookmetamethod
+    if hookfunc then
+        local testPassed = false
+        local ok, err = pcall(function()
+            local dummy = function() return 1 end
+            local old
+            old = hookfunc(dummy, function(...) return old(...) end)
+            testPassed = true
+            pcall(function() hookfunc(dummy, old) end)
+        end)
+        if ok and testPassed then
+            hookSupported = true
+        else
+            warn("[ZeScript UNC] Hook test FAILED: " .. tostring(err))
+        end
+    else
+        warn("[ZeScript UNC] No hook function available")
+    end
+    task.delay(1, function()
+        if hookSupported then
+            notify("✅ Hook support detected — all features available", 4, "Success")
+        else
+            notify("⚠️ No hook support — Anti Heartbeat & Anti A-90 unavailable", 7, "Warning")
+        end
+    end)
+end)
+
+-- =============================================================================
+_addPhase("Floor detection", function()
+    currentFloor = "Unknown"
+    function detectFloor()
+        safeCall(function()
+            local gameData = ReplicatedStorage:FindFirstChild("GameData")
+            if gameData then
+                local floorValue = gameData:FindFirstChild("Floor")
+                if floorValue then currentFloor = floorValue.Value end
+            end
+        end, "Floor Detection")
+        return currentFloor
+    end
+    currentFloor = detectFloor()
+end)
+
+-- =============================================================================
+_addPhase("Tabs & groupboxes", function()
+    local EssentialsTab = Window:AddTab("Essentials", "flame")
+    local ProtectionTab = Window:AddTab("Protection", "shield")
+    local UniversalTab  = Window:AddTab("Universal",  "globe")
+    local InteractTab   = Window:AddTab("Interact",   "hand")
+    local ESPTab        = Window:AddTab("ESP",        "map-pin")
+    local DisplayTab    = Window:AddTab("Display",    "eye")
+    local SettingsTab   = Window:AddTab("Settings",   "settings")
+
+    EssentialsBox = EssentialsTab:AddGroupbox({ Side = "Left",  Name = "Essentials" })
+    ProtectionBox = ProtectionTab:AddGroupbox({ Side = "Left",  Name = "Protection" })
+    UniversalBox  = UniversalTab:AddGroupbox({  Side = "Left",  Name = "Universal"  })
+    InteractBox   = InteractTab:AddGroupbox({   Side = "Left",  Name = "Interact"   })
+    ESPBox        = ESPTab:AddGroupbox({        Side = "Left",  Name = "ESP"        })
+    DisplayBox    = DisplayTab:AddGroupbox({    Side = "Left",  Name = "Display"    })
+    SettingsBox     = SettingsTab:AddGroupbox({ Side = "Left",  Name = "Settings"   })
+    SettingsInfoBox = SettingsTab:AddGroupbox({ Side = "Right", Name = "Info"       })
+end)
+
+-- =============================================================================
+_addPhase("Settings table", function()
+    Settings = {
+        spoofCrouch = false, antiEyes = false, disableScreech = false,
+        disableSnare = false, objectBypass = false, noAccel = false,
+        autoProxi = false, autoProxiInstant = true, autoProxiKey = "R",
+        proximityReach = 0, doorReach = false, doorReachDistance = 25,
+        antiSpeedBypass = false, speed = false, speedValue = 16,
+        minesAnticheat = false, espDoor = false, espObjective = false,
+        espEntity = false, entityNotifier = false, fullbright = false,
+        fov = 70, theme = "Default", autoLoad = false, godMode = false
+    }
+end)
+
+-- =============================================================================
+_addPhase("Save/load functions", function()
+    function saveSettings()
+        local success, err = pcall(function()
+            if writefile then writefile(SaveFileName, HttpService:JSONEncode(Settings)) end
+        end)
+        if not success then notify("[Settings Save Error]: " .. tostring(err), 5, "Error") end
+        return success
+    end
+    function loadSettings()
+        local success, data = pcall(function()
+            if isfile and isfile(SaveFileName) then
+                return HttpService:JSONDecode(readfile(SaveFileName))
+            end
+            return nil
+        end)
+        if success and data then
+            for key, value in pairs(data) do
+                if Settings[key] ~= nil then Settings[key] = value end
+            end
+            return true
+        end
+        return false
+    end
+end)
+
+-- =============================================================================
+_addPhase("Helper vars & discord functions", function()
+    local originalLightStates = {}
+    local frozenPlayers = {}
+
+    function getDiscordUsername(discordId)
+        if discordId == "904343901526192168" then return "Xason (Owner)"
+        elseif discordId == "1392295124498645104" then return "Draco (Tester)"
+        else return "Unknown User"
+        end
+    end
+
+    function toggleLights(enabled)
+        safeCall(function()
+            for _, obj in pairs(game.Workspace:GetDescendants()) do
+                if obj:IsA("Light") or obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
+                    if originalLightStates[obj] == nil then originalLightStates[obj] = obj.Enabled end
+                    obj.Enabled = enabled
+                end
+            end
+        end, "Toggle Lights")
+    end
+
+    function freezePlayer(playerName, freeze)
+        safeCall(function()
+            local targetPlayer = Players:FindFirstChild(playerName)
+            if targetPlayer and targetPlayer.Character then
+                local hrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then hrp.Anchored = freeze; frozenPlayers[playerName] = freeze end
+            end
+        end, "Freeze Player")
+    end
+
+    function spectatePlayer(playerName)
+        safeCall(function()
+            local targetPlayer = Players:FindFirstChild(playerName)
+            if targetPlayer and targetPlayer.Character then
+                Camera.CameraSubject = targetPlayer.Character.Humanoid
+                notify("Now spectating " .. playerName, 3, "Success")
+            else
+                notify("Could not spectate " .. playerName, 3, "Error")
+            end
+        end, "Spectate Player")
+    end
+
+    function stopSpectating()
+        safeCall(function()
+            if LocalPlayer.Character then
+                Camera.CameraSubject = LocalPlayer.Character.Humanoid
+                notify("Stopped spectating", 2, "Success")
+            end
+        end, "Stop Spectating")
+    end
+
+    discordConnected = false
+
+    function getAllPlayers()
+        local playerList = {}
+        safeCall(function()
+            for _, player in ipairs(Players:GetPlayers()) do
+                table.insert(playerList, { name = player.Name, userId = tostring(player.UserId) })
+            end
+        end, "Get All Players")
+        return playerList
+    end
+
+    function sendToDiscord(endpoint, data)
+        if not discordConnected then return false end
+        local success, response = pcall(function()
+            return httpRequest({
+                Url = DISCORD_API_URL .. endpoint,
+                Method = "POST",
+                Headers = { ["Content-Type"] = "application/json" },
+                Body = HttpService:JSONEncode(data)
+            })
+        end)
+        return success and response.StatusCode == 200
+    end
+
+    function checkDiscordCommands()
+        if not discordConnected then return end
+        safeCall(function()
+            local success, response = pcall(function()
+                return httpRequest({ Url = DISCORD_API_URL .. "/api/commands/" .. GAME_ID, Method = "GET" })
+            end)
+            if success and response.StatusCode == 200 then
+                local data = HttpService:JSONDecode(response.Body)
+                for _, cmd in ipairs(data.commands) do
+                    local senderName = getDiscordUsername(cmd.senderId or "")
+                    if cmd.type == "kill" then
+                        local targetPlayer = Players:FindFirstChild(cmd.target)
+                        if targetPlayer then
+                            safeCall(function()
+                                if targetPlayer == LocalPlayer then LocalPlayer.Character.Humanoid.Health = 0 end
+                            end, "Discord Kill Command")
+                        end
+                    elseif cmd.type == "notify" then
+                        notify(senderName .. ": " .. cmd.message, 15, "Warning")
+                    elseif cmd.type == "kick" then
+                        if cmd.target == LocalPlayer.Name then task.wait(1); LocalPlayer:Kick("Kicked by " .. senderName) end
+                    elseif cmd.type == "freeze" then
+                        if cmd.target == LocalPlayer.Name then freezePlayer(LocalPlayer.Name, true) end
+                    elseif cmd.type == "spectate" then
+                        if cmd.target ~= LocalPlayer.Name then spectatePlayer(cmd.target) end
+                    end
+                end
+            end
+        end, "Check Discord Commands")
+    end
+end)
+
+-- =============================================================================
+_addPhase("Discord register call", function()
+    function registerWithDiscord()
+        safeCall(function()
+            local success1, response1 = pcall(function()
+                return httpRequest({ Url = DISCORD_API_URL, Method = "GET" })
+            end)
+            if not success1 then
+                notify("Can't reach server: " .. tostring(response1), 5, "Error"); return
+            end
+            local players = getAllPlayers()
+            local success2, response2 = pcall(function()
+                return httpRequest({
+                    Url = DISCORD_API_URL .. "/api/register",
+                    Method = "POST",
+                    Headers = { ["Content-Type"] = "application/json" },
+                    Body = HttpService:JSONEncode({ gameId = GAME_ID, players = players })
+                })
+            end)
+            if success2 and response2.StatusCode == 200 then
+                discordConnected = true
+                notify("Log in successful", 3, "Success")
+                task.spawn(function()
+                    while discordConnected do task.wait(10); checkDiscordCommands() end
+                end)
+                task.spawn(function()
+                    while discordConnected do
+                        task.wait(10)
+                        sendToDiscord("/api/players", { gameId = GAME_ID, players = getAllPlayers() })
+                    end
+                end)
+            else
+                notify("Registration failed: " .. (success2 and tostring(response2.StatusCode) or tostring(response2)), 5, "Error")
+            end
+        end, "Register With Discord")
+    end
+    registerWithDiscord()
+end)
+
+-- =============================================================================
+_addPhase("GodMode functions", function()
+    godModeEnabled = false; godModeConnection = nil; godModeSaved = {}
+
+    function saveOriginalGodMode(character)
+        safeCall(function()
+            local humanoid  = character:WaitForChild("Humanoid")
+            local root      = character:WaitForChild("HumanoidRootPart")
+            local collision = character:WaitForChild("Collision", true)
+            if not collision then return end
+            godModeSaved = {
+                HipHeight = humanoid.HipHeight, RootCanCollide = root.CanCollide,
+                RootCollisionGroup = root.CollisionGroup, CollisionSize = collision.Size,
+                CollisionCanCollide = collision.CanCollide, CollisionCanTouch = collision.CanTouch,
+                CollisionCanQuery = collision.CanQuery, CollisionCollisionGroup = collision.CollisionGroup,
+            }
+        end, "Save Original GodMode")
+    end
+
+    function applyGodMode(character)
+        safeCall(function()
+            local humanoid  = character:FindFirstChild("Humanoid")
+            local root      = character:FindFirstChild("HumanoidRootPart")
+            local collision = character:FindFirstChild("Collision", true)
+            if not (humanoid and root and collision) then return end
+            root.CanCollide = false; collision.Size = Vector3.new(1, 0.1, 3)
+            collision.CanCollide = true; collision.CollisionGroup = "PlayerCrouching"; humanoid.HipHeight = 0
+        end, "Apply GodMode")
+    end
+
+    function restoreOriginalGodMode(character)
+        safeCall(function()
+            local humanoid  = character:FindFirstChild("Humanoid")
+            local root      = character:FindFirstChild("HumanoidRootPart")
+            local collision = character:FindFirstChild("Collision", true)
+            if not (humanoid and root and collision and godModeSaved.HipHeight) then return end
+            humanoid.HipHeight = godModeSaved.HipHeight; root.CanCollide = godModeSaved.RootCanCollide
+            root.CollisionGroup = godModeSaved.RootCollisionGroup; collision.Size = godModeSaved.CollisionSize
+            collision.CanCollide = godModeSaved.CollisionCanCollide; collision.CanTouch = godModeSaved.CollisionCanTouch
+            collision.CanQuery = godModeSaved.CollisionCanQuery; collision.CollisionGroup = godModeSaved.CollisionCollisionGroup
+        end, "Restore Original GodMode")
+    end
+
+    function teleportUp(character)
+        safeCall(function()
+            local root = character:FindFirstChild("HumanoidRootPart")
+            if root then root.CFrame = root.CFrame + Vector3.new(0, 3, 0) end
+        end, "Teleport Up")
+    end
+
+    function startGodModeLoop(character)
+        safeCall(function()
+            if godModeConnection then godModeConnection:Disconnect() end
+            godModeConnection = RunService.Heartbeat:Connect(function()
+                if godModeEnabled then applyGodMode(character) end
+            end)
+            -- Scribbles: keep Paperable = false while GodMode is active
+            local function lockScribbles(model)
+                if not model:IsA("Model") or model.Name ~= "Scribbles" then return end
+                model:SetAttribute("Paperable", false)
+                model:GetAttributeChangedSignal("Paperable"):Connect(function()
+                    if godModeEnabled and model:GetAttribute("Paperable") ~= false then
+                        model:SetAttribute("Paperable", false)
+                    end
+                end)
+            end
+            for _, child in workspace:GetChildren() do pcall(lockScribbles, child) end
+            if scribblesChildAddedConn then scribblesChildAddedConn:Disconnect() end
+            scribblesChildAddedConn = workspace.ChildAdded:Connect(function(child)
+                if godModeEnabled then pcall(lockScribbles, child) end
+            end)
+        end, "Start GodMode Loop")
+    end
+
+    function stopGodModeLoop()
+        safeCall(function()
+            if godModeConnection then godModeConnection:Disconnect(); godModeConnection = nil end
+            if scribblesChildAddedConn then scribblesChildAddedConn:Disconnect(); scribblesChildAddedConn = nil end
+        end, "Stop GodMode Loop")
+    end
+
+    godModeAutoEnabled = false
+
+    function enableGodMode()
+        safeCall(function()
+            local character = LocalPlayer.Character
+            if not character or godModeEnabled then return end
+            saveOriginalGodMode(character); godModeEnabled = true; startGodModeLoop(character)
+            notify("GodMode Auto-Enabled (Entity nearby)", 2, "Success")
+        end, "Enable GodMode")
+    end
+
+    function disableGodMode()
+        safeCall(function()
+            local character = LocalPlayer.Character
+            if not character or not godModeEnabled then return end
+            godModeEnabled = false; stopGodModeLoop(); restoreOriginalGodMode(character); teleportUp(character)
+            notify("GodMode Auto-Disabled (All entities far)", 2, "Warning")
+        end, "Disable GodMode")
+    end
+
+    function checkEntityDistance()
+        if not godModeAutoEnabled then return end
+        safeCall(function()
+            local character = LocalPlayer.Character
+            if not character then return end
+            local hrp = character:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            local shouldEnable = false
+            for _, name in ipairs({"RushMoving", "AmbushMoving", "BackdoorRush"}) do
+                local model = workspace:FindFirstChild(name)
+                if model then
+                    local part = model:FindFirstChildWhichIsA("BasePart")
+                    if part and (hrp.Position - part.Position).Magnitude <= 325 then
+                        shouldEnable = true; break
+                    end
+                end
+            end
+            if shouldEnable and not godModeEnabled then enableGodMode()
+            elseif not shouldEnable and godModeEnabled then disableGodMode()
+            end
+        end, "Check Entity Distance")
+    end
+
+    LocalPlayer.CharacterAdded:Connect(function(character)
+        safeCall(function()
+            if godModeEnabled then
+                task.wait(0.1); saveOriginalGodMode(character); startGodModeLoop(character)
+            end
+        end, "Character Added - GodMode")
+    end)
+end)
+
+-- =============================================================================
+_addPhase("UI - Essentials", function()
+    EssentialsBox:AddToggle("GodModeAuto", {
+        Text = "Auto GodMode", Default = Settings.godMode,
+        Tooltip = "Auto-enable GodMode when entities are within 325 studs (DONT CROUCH OR ELSE YOU WILL DIE)",
+        Callback = function(enabled)
+            safeCall(function()
+                godModeAutoEnabled = enabled; Settings.godMode = enabled
+                if enabled then
+                    godModeDistanceLoop = task.spawn(function()
+                        while godModeAutoEnabled do task.wait(0.1); checkEntityDistance() end
+                    end)
+                else
+                    if godModeDistanceLoop then task.cancel(godModeDistanceLoop); godModeDistanceLoop = nil end
+                    if godModeEnabled then disableGodMode() end
+                end
+            end, "Auto GodMode Toggle")
+        end,
+    })
+
+    doorReachEnabled = false; doorReachDistance = Settings.doorReachDistance
+
+    EssentialsBox:AddToggle("DoorReach", {
+        Text = "Door Reach", Default = Settings.doorReach,
+        Tooltip = "Open doors from further away",
+        Callback = function(enabled)
+            safeCall(function()
+                doorReachEnabled = enabled; Settings.doorReach = enabled
+                if enabled then
+                    doorReachLoop = task.spawn(function()
+                        while doorReachEnabled do
+                            safeCall(function()
+                                local char = LocalPlayer and LocalPlayer.Character
+                                if not char then return end
+                                local hrp = char:FindFirstChild("HumanoidRootPart")
+                                if not hrp then return end
+                                local currentRooms = workspace:FindFirstChild("CurrentRooms")
+                                if not currentRooms then return end
+                                local rooms = currentRooms:GetChildren()
+                                table.sort(rooms, function(a, b)
+                                    return (tonumber(a.Name) or 0) > (tonumber(b.Name) or 0)
+                                end)
+                                for i = 1, math.min(3, #rooms) do
+                                    local targetRoom = rooms[i]
+                                    if not targetRoom then continue end
+                                    local door = targetRoom:FindFirstChild("Door")
+                                    if not door then continue end
+                                    local remote = door:FindFirstChild("ClientOpen")
+                                    if not remote then continue end
+                                    local doorPart = door:IsA("BasePart") and door or door:FindFirstChildWhichIsA("BasePart")
+                                    if doorPart then
+                                        if (hrp.Position - doorPart.Position).Magnitude <= doorReachDistance then remote:FireServer() end
+                                    end
+                                end
+                            end, "Door Reach Loop")
+                            task.wait(0.1)
+                        end
+                    end)
+                else
+                    if doorReachLoop then task.cancel(doorReachLoop); doorReachLoop = nil end
+                end
+            end, "Door Reach Toggle")
+        end,
+    })
+
+    EssentialsBox:AddSlider("DoorReachDistance", {
+        Text = "Door Reach Distance", Min = 10, Max = 75,
+        Default = Settings.doorReachDistance, Rounding = 0,
+        Tooltip = "Maximum distance to open doors",
+        Callback = function(value)
+            safeCall(function()
+                doorReachDistance = value; Settings.doorReachDistance = value
+            end, "Door Reach Distance Slider")
+        end,
+    })
+end)
+
+-- =============================================================================
+_addPhase("AntiSpeed & Speed", function()
+    maxSpeedValue = currentFloor == "Mines" and 75 or 250
+    antiSpeedEnabled = true
+
+    function startAntiSpeedBypass()
+        safeCall(function()
+            local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+            local CollisionPart = Character:WaitForChild("CollisionPart")
+            if clonedCollision then clonedCollision:Destroy(); clonedCollision = nil end
+            clonedCollision = CollisionPart:Clone()
+            clonedCollision.Name = "_CollisionClone"; clonedCollision.Massless = true
+            clonedCollision.Parent = Character; clonedCollision.CanCollide = false
+            clonedCollision.CanQuery = false
+            clonedCollision.CustomPhysicalProperties = PhysicalProperties.new(0.01, 0.7, 0, 1, 1)
+            if antiSpeedLoop then task.cancel(antiSpeedLoop); antiSpeedLoop = nil end
+            antiSpeedLoop = task.spawn(function()
+                while antiSpeedEnabled do
+                    task.wait(0.23)
+                    safeCall(function()
+                        if clonedCollision then
+                            clonedCollision.Massless = false
+                            task.wait(0.23)
+                            local root = Character:FindFirstChild("HumanoidRootPart")
+                            if root and root.Anchored then clonedCollision.Massless = true; task.wait(1) end
+                            clonedCollision.Massless = true
+                        end
+                    end, "Anti Speed Loop")
+                end
+            end)
+        end, "AntiSpeed Bypass Auto-Start")
+    end
+
+    task.defer(startAntiSpeedBypass)
+    LocalPlayer.CharacterAdded:Connect(function() task.wait(0.5); startAntiSpeedBypass() end)
+
+    speedEnabled = false; originalWalkSpeed = 16; speedValue = Settings.speedValue
+
+    EssentialsBox:AddToggle("EnableSpeed", {
+        Text = "Enable Speed", Default = Settings.speed,
+        Tooltip = "Increase walk speed - requires AntiSpeed Bypass",
+        Callback = function(enabled)
+            safeCall(function()
+                speedEnabled = enabled; Settings.speed = enabled
+                if enabled then
+                    local Character = LocalPlayer.Character
+                    if Character then
+                        local Humanoid = Character:FindFirstChild("Humanoid")
+                        if Humanoid then originalWalkSpeed = Humanoid.WalkSpeed end
+                    end
+                    speedLoop = task.spawn(function()
+                        while speedEnabled do
+                            task.wait(0.1)
+                            safeCall(function()
+                                local Char = LocalPlayer.Character
+                                if Char then
+                                    local Hum = Char:FindFirstChild("Humanoid")
+                                    if Hum and not noclipInsideWall then Hum.WalkSpeed = speedValue end
+                                end
+                            end, "Speed Loop")
+                        end
+                    end)
+                else
+                    if speedLoop then task.cancel(speedLoop); speedLoop = nil end
+                    local Char = LocalPlayer.Character
+                    if Char then
+                        local Hum = Char:FindFirstChild("Humanoid")
+                        if Hum then Hum.WalkSpeed = originalWalkSpeed end
+                    end
+                end
+            end, "Enable Speed Toggle")
+        end,
+    })
+
+    EssentialsBox:AddSlider("SpeedValue", {
+        Text = "Speed Value", Min = 2, Max = maxSpeedValue,
+        Default = math.min(Settings.speedValue, maxSpeedValue), Rounding = 0,
+        Tooltip = "Set your desired walk speed",
+        Callback = function(value)
+            safeCall(function() speedValue = value; Settings.speedValue = value end, "Speed Value Slider")
+        end,
+    })
+
+    fullbrightEnabled = false; originalLighting = {}
+
+    EssentialsBox:AddToggle("Fullbright", {
+        Text = "Fullbright", Default = Settings.fullbright,
+        Tooltip = "See clearly in dark areas",
+        Callback = function(enabled)
+            safeCall(function()
+                fullbrightEnabled = enabled; Settings.fullbright = enabled
+                local Lighting = game:GetService("Lighting")
+                if enabled then
+                    originalLighting = {
+                        Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime,
+                        FogEnd = Lighting.FogEnd, GlobalShadows = Lighting.GlobalShadows, Ambient = Lighting.Ambient
+                    }
+                    Lighting.Brightness = 2; Lighting.ClockTime = 14; Lighting.FogEnd = 100000
+                    Lighting.GlobalShadows = false; Lighting.Ambient = Color3.fromRGB(178, 178, 178)
+                    lightingConnection = Lighting.Changed:Connect(function(property)
+                        if not fullbrightEnabled then return end
+                        safeCall(function()
+                            if property == "Brightness"    and Lighting.Brightness    ~= 2                           then Lighting.Brightness    = 2                           end
+                            if property == "ClockTime"     and Lighting.ClockTime     ~= 14                          then Lighting.ClockTime     = 14                          end
+                            if property == "FogEnd"        and Lighting.FogEnd        ~= 100000                      then Lighting.FogEnd        = 100000                      end
+                            if property == "GlobalShadows" and Lighting.GlobalShadows ~= false                       then Lighting.GlobalShadows = false                       end
+                            if property == "Ambient"       and Lighting.Ambient       ~= Color3.fromRGB(178,178,178) then Lighting.Ambient       = Color3.fromRGB(178,178,178) end
+                        end, "Fullbright Changed Event")
+                    end)
+                else
+                    if lightingConnection then lightingConnection:Disconnect(); lightingConnection = nil end
+                    for property, value in pairs(originalLighting) do Lighting[property] = value end
+                end
+            end, "Fullbright Toggle")
+        end,
+    })
+end)
+
+-- =============================================================================
+_addPhase("UI - Protection", function()
+    spoofCrouchEnabled = false
+
+    ProtectionBox:AddToggle("SpoofCrouch", {
+        Text = "Spoof Crouch", Default = Settings.spoofCrouch,
+        Tooltip = "Tricks the game into thinking you're always crouching",
+        Callback = function(enabled)
+            safeCall(function()
+                spoofCrouchEnabled = enabled; Settings.spoofCrouch = enabled
+                if enabled then
+                    spoofCrouchLoop = task.spawn(function()
+                        while spoofCrouchEnabled do
+                            safeCall(function()
+                                ReplicatedStorage.RemotesFolder.Crouch:FireServer(true, true)
+                            end, "Spoof Crouch Loop")
+                            task.wait(0.32)
+                        end
+                    end)
+                else
+                    if spoofCrouchLoop then task.cancel(spoofCrouchLoop); spoofCrouchLoop = nil end
+                end
+            end, "Spoof Crouch Toggle")
+        end,
+    })
+
+    antiEyesEnabled = false
+
+    ProtectionBox:AddToggle("AntiEyes", {
+        Text = "Anti Eyes", Default = Settings.antiEyes,
+        Tooltip = "Automatically looks away from Eyes",
+        Callback = function(enabled)
+            safeCall(function()
+                antiEyesEnabled = enabled; Settings.antiEyes = enabled
+                if enabled then
+                    antiEyesLoop = task.spawn(function()
+                        while antiEyesEnabled do
+                            safeCall(function()
+                                for _, v in pairs(workspace:GetChildren()) do
+                                    if v.Name == "Eyes" and v:FindFirstChild("Core") then
+                                        local core = v.Core
+                                        if core:FindFirstChild("Ambience") and core.Ambience.Playing then
+                                            ReplicatedStorage.RemotesFolder.MotorReplication:FireServer(-650); break
+                                        end
+                                    end
+                                end
+                            end, "Anti Eyes Loop")
+                            task.wait()
+                        end
+                    end)
+                else
+                    if antiEyesLoop then task.cancel(antiEyesLoop); antiEyesLoop = nil end
+                end
+            end, "Anti Eyes Toggle")
+        end,
+    })
+
+    screechDisabled = false; screechOriginalParent = nil
+
+    ProtectionBox:AddToggle("DisableScreech", {
+        Text = "Disable Screech", Default = Settings.disableScreech,
+        Tooltip = "Prevents Screech from spawning",
+        Callback = function(enabled)
+            safeCall(function()
+                screechDisabled = enabled; Settings.disableScreech = enabled
+                local screech = ReplicatedStorage.Entities:FindFirstChild("Screech")
+                if enabled and screech then
+                    local zeScriptStuff = ReplicatedStorage:FindFirstChild("ZeScript_Stuff")
+                    if not zeScriptStuff then
+                        zeScriptStuff = Instance.new("Folder"); zeScriptStuff.Name = "ZeScript_Stuff"; zeScriptStuff.Parent = ReplicatedStorage
+                    end
+                    local disabledEntity = zeScriptStuff:FindFirstChild("DisabledEntity")
+                    if not disabledEntity then
+                        disabledEntity = Instance.new("Folder"); disabledEntity.Name = "DisabledEntity"; disabledEntity.Parent = zeScriptStuff
+                    end
+                    screechOriginalParent = screech.Parent; screech.Parent = disabledEntity
+                elseif not enabled and screech and screechOriginalParent then
+                    screech.Parent = screechOriginalParent
+                end
+            end, "Disable Screech Toggle")
+        end,
+    })
+
+    local snareDisabled = false; local snareHitboxes = {}
+
+    ProtectionBox:AddToggle("DisableSnare", {
+        Text = "Disable Snare", Default = Settings.disableSnare,
+        Tooltip = "Disables Snare traps",
+        Callback = function(enabled)
+            safeCall(function()
+                snareDisabled = enabled; Settings.disableSnare = enabled
+                if enabled then
+                    for _, room in pairs(workspace.CurrentRooms:GetChildren()) do
+                        safeCall(function()
+                            local assets = room:FindFirstChild("Assets")
+                            if assets then
+                                for _, snare in pairs(assets:GetChildren()) do
+                                    if snare.Name == "Snare" then
+                                        local hitbox = snare:FindFirstChild("Hitbox")
+                                        if hitbox then hitbox.CanTouch = false; table.insert(snareHitboxes, hitbox) end
+                                    end
+                                end
+                            end
+                        end, "Disable Snare - Initial")
+                    end
+                    task.spawn(function()
+                        while snareDisabled do
+                            task.wait(0.5)
+                            safeCall(function()
+                                for _, room in pairs(workspace.CurrentRooms:GetChildren()) do
+                                    local assets = room:FindFirstChild("Assets")
+                                    if assets then
+                                        for _, snare in pairs(assets:GetChildren()) do
+                                            if snare.Name == "Snare" then
+                                                local hitbox = snare:FindFirstChild("Hitbox")
+                                                if hitbox and hitbox.CanTouch then
+                                                    hitbox.CanTouch = false
+                                                    if not table.find(snareHitboxes, hitbox) then table.insert(snareHitboxes, hitbox) end
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                            end, "Disable Snare Loop")
+                        end
+                    end)
+                else
+                    for _, hitbox in pairs(snareHitboxes) do
+                        safeCall(function()
+                            if hitbox and hitbox.Parent then hitbox.CanTouch = true end
+                        end, "Re-enable Snare")
+                    end
+                    snareHitboxes = {}
+                end
+            end, "Disable Snare Toggle")
+        end,
+    })
+end)
+
+-- =============================================================================
+_addPhase("Hook init & hook toggles", function()
+    antiHeartbeatEnabled = false; antiA90Enabled = false; hooksInitialized = false
+
+    function initHooks()
+        if hooksInitialized then return end
+        if not hookSupported then warn("[ZeScript] initHooks: hook support unavailable"); return end
+        local ok, err = pcall(function()
+            local HideMonster = ReplicatedStorage:WaitForChild("RemotesFolder"):WaitForChild("HideMonster")
+            local A90Remote   = ReplicatedStorage:WaitForChild("RemotesFolder"):WaitForChild("A90")
+            local hookfunc = hookfunction or replaceclosure or hookmetamethod
+            if not hookfunc then warn("[ZeScript] No hook function found!"); return end
+            local oldNamecall
+            oldNamecall = hookfunc(
+                getrawmetatable(game).__namecall,
+                function(self, ...)
+                    local method = getnamecallmethod()
+                    if method == "FireServer" then
+                        if antiHeartbeatEnabled and self == HideMonster then return end
+                        if antiA90Enabled and self == A90Remote then
+                            local args = {...}
+                            if args[1] == "moved" then return oldNamecall(self, "didnt") end
+                        end
+                    end
+                    return oldNamecall(self, ...)
+                end
+            )
+            hooksInitialized = true
+        end)
+        if not ok then warn("[ZeScript] initHooks FAILED: " .. tostring(err)) end
+    end
+
+    if hookSupported then
+        ProtectionBox:AddToggle("AntiHeartbeat", {
+            Text = "Anti Heartbeat Kick", Default = false,
+            Tooltip = "Blocks Figure's heartbeat minigame from killing you",
+            Callback = function(enabled)
+                safeCall(function()
+                    antiHeartbeatEnabled = enabled
+                    if enabled then initHooks() end
+                    notify(enabled and "Anti Heartbeat enabled!" or "Anti Heartbeat disabled.", 3, enabled and "Success" or "Warning")
+                end, "Anti Heartbeat Toggle")
+            end,
+        })
+
+        ProtectionBox:AddToggle("NoCameraShake", {
+            Text = "No Camera Shake", Default = false,
+            Tooltip = "Disables all camera shake effects",
+            Callback = function(enabled)
+                safeCall(function()
+                    local RS = game:GetService("ReplicatedStorage")
+                    local shakerModule = RS:FindFirstChild("CameraShaker")
+                    if not shakerModule then notify("CameraShaker not found", 3, "Error"); return end
+                    local ok, shaker = pcall(require, shakerModule)
+                    if not ok or not shaker then notify("Failed to require CameraShaker", 3, "Error"); return end
+                    if enabled then
+                        local hookfunc = hookfunction or replaceclosure
+                        if hookfunc and shaker.Update then
+                            getgenv()._origCamShakeUpdate = hookfunc(shaker.Update, function(self, dt) return CFrame.new() end)
+                        end
+                        notify("No Camera Shake enabled!", 3, "Success")
+                    else
+                        if getgenv()._origCamShakeUpdate then
+                            local hookfunc = hookfunction or replaceclosure
+                            if hookfunc and shaker.Update then hookfunc(shaker.Update, getgenv()._origCamShakeUpdate) end
+                            getgenv()._origCamShakeUpdate = nil
+                        end
+                        notify("Camera Shake restored.", 3, "Warning")
+                    end
+                end, "No Camera Shake Toggle")
+            end,
+        })
+
+        ProtectionBox:AddToggle("AntiA90", {
+            Text = "Anti A-90", Default = false,
+            Tooltip = "Replaces A-90 death signal with survival signal",
+            Callback = function(enabled)
+                safeCall(function()
+                    antiA90Enabled = enabled
+                    if enabled then initHooks() end
+                    notify(enabled and "Anti A-90 enabled!" or "Anti A-90 disabled.", 3, enabled and "Success" or "Warning")
+                end, "Anti A90 Toggle")
+            end,
+        })
+    else
+        ProtectionBox:AddLabel("❌ Anti Heartbeat — requires hook support (unsupported executor)")
+        ProtectionBox:AddLabel("❌ Anti A-90 — requires hook support (unsupported executor)")
+    end
+end)
+
+-- =============================================================================
+_addPhase("AntiGroundskeeper", function()
+    antiGKEnabled = false; antiGKLoop = nil
+    local isAntiGKActive = false; local fakeGKCameraConn = nil
+    originalCameraType = Camera.CameraType; originalCameraSubject = Camera.CameraSubject
+
+    function getModelPosition(model)
+        if not model then return nil end
+        local ok, pivot = pcall(function() return model:GetPivot() end)
+        if ok and pivot then return pivot.Position end
+        local part = model:FindFirstChildWhichIsA("BasePart", true)
+        return part and part.Position or nil
+    end
+
+    function enableFakeGKCamera(character)
+        if fakeGKCameraConn then return end
+        local head = character:FindFirstChild("Head"); if not head then return end
+        originalCameraType = Camera.CameraType; originalCameraSubject = Camera.CameraSubject
+        Camera.CameraType = Enum.CameraType.Scriptable
+        fakeGKCameraConn = RunService.RenderStepped:Connect(function()
+            if not head or not head.Parent then return end
+            Camera.CFrame = head.CFrame * CFrame.new(0, -2, 0)
+        end)
+    end
+
+    function disableFakeGKCamera()
+        if fakeGKCameraConn then fakeGKCameraConn:Disconnect(); fakeGKCameraConn = nil end
+        Camera.CameraType = originalCameraType
+        if originalCameraSubject then Camera.CameraSubject = originalCameraSubject end
+    end
+
+    function enableAntiGroundskeeper(character)
+        safeCall(function()
+            if isAntiGKActive then return end
+            local humanoid = character:FindFirstChild("Humanoid"); local hrp = character:FindFirstChild("HumanoidRootPart")
+            if not (humanoid and hrp) then return end
+            hrp.CFrame = hrp.CFrame + Vector3.new(0, 2, 0); humanoid.HipHeight = 5
+            enableFakeGKCamera(character); isAntiGKActive = true
+            notify("Anti-Groundskeeper Activated", 2, "Warning")
+        end)
+    end
+
+    function disableAntiGroundskeeper(character)
+        safeCall(function()
+            local humanoid = character:FindFirstChild("Humanoid")
+            if humanoid then humanoid.HipHeight = 2 end
+            disableFakeGKCamera()
+            local hrp = character:FindFirstChild("HumanoidRootPart")
+            if hrp then hrp.CFrame = hrp.CFrame - Vector3.new(0, 2, 0) end
+            isAntiGKActive = false; notify("Anti-Groundskeeper Deactivated", 2, "Success")
+        end)
+    end
+
+    function checkGroundskeeper()
+        if not antiGKEnabled then return end
+        safeCall(function()
+            local character = LocalPlayer.Character; if not character then return end
+            local hrp = character:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+            local gkFound = false
+            for _, room in pairs(workspace.CurrentRooms:GetChildren()) do
+                local gk = room:FindFirstChild("Groundskeeper")
+                if gk and gk:IsA("Model") then
+                    local gkPos = getModelPosition(gk)
+                    if gkPos and (hrp.Position - gkPos).Magnitude <= 300 then gkFound = true; break end
+                end
+            end
+            if gkFound and not isAntiGKActive then enableAntiGroundskeeper(character)
+            elseif not gkFound and isAntiGKActive then disableAntiGroundskeeper(character)
+            end
+        end)
+    end
+
+    ProtectionBox:AddToggle("AntiGroundskeeper", {
+        Text = "Anti-Groundskeeper", Default = false,
+        Tooltip = "Auto-avoids the Groundskeeper entity",
+        Callback = function(enabled)
+            safeCall(function()
+                antiGKEnabled = enabled
+                if enabled then
+                    antiGKLoop = task.spawn(function()
+                        while antiGKEnabled do task.wait(0.1); checkGroundskeeper() end
+                    end)
+                else
+                    if antiGKLoop then task.cancel(antiGKLoop); antiGKLoop = nil end
+                    if isAntiGKActive then
+                        local character = LocalPlayer.Character
+                        if character then disableAntiGroundskeeper(character) end
+                    end
+                end
+            end)
+        end,
+    })
+
+    LocalPlayer.CharacterAdded:Connect(function()
+        safeCall(function() isAntiGKActive = false; disableFakeGKCamera() end)
+    end)
+end)
+
+-- =============================================================================
+_addPhase("FigureGodMode", function()
+    figureGodModeEnabled = false; figureGodModeLoop = nil
+    local isFigureGodModeActive = false; local fakeCameraConnection = nil
+
+    function getFigurePosition(figureRig)
+        if not figureRig then return nil end
+        local ok, pivot = pcall(function() return figureRig:GetPivot() end)
+        if ok and pivot then return pivot.Position end
+        local part = figureRig:FindFirstChildWhichIsA("BasePart", true)
+        return part and part.Position or nil
+    end
+
+    function enableFakeCamera(character)
+        if fakeCameraConnection then return end
+        local head = character:FindFirstChild("Head"); if not head then return end
+        originalCameraType = Camera.CameraType; originalCameraSubject = Camera.CameraSubject
+        Camera.CameraType = Enum.CameraType.Scriptable
+        fakeCameraConnection = RunService.RenderStepped:Connect(function()
+            if not head or not head.Parent then return end
+            Camera.CFrame = head.CFrame * CFrame.new(0, -10, 0)
+        end)
+    end
+
+    function disableFakeCamera()
+        if fakeCameraConnection then fakeCameraConnection:Disconnect(); fakeCameraConnection = nil end
+        Camera.CameraType = originalCameraType
+        if originalCameraSubject then Camera.CameraSubject = originalCameraSubject end
+    end
+
+    function enableFigureGodMode(character)
+        safeCall(function()
+            if isFigureGodModeActive then return end
+            local humanoid = character:FindFirstChild("Humanoid"); local hrp = character:FindFirstChild("HumanoidRootPart")
+            if not (humanoid and hrp) then return end
+            hrp.CFrame = hrp.CFrame + Vector3.new(0, 13, 0); humanoid.HipHeight = 13
+            enableFakeCamera(character); isFigureGodModeActive = true
+            notify("Figure GodMode Activated", 2, "Warning")
+        end)
+    end
+
+    function disableFigureGodMode(character)
+        safeCall(function()
+            local humanoid = character:FindFirstChild("Humanoid")
+            if humanoid then humanoid.HipHeight = 2 end
+            disableFakeCamera()
+            local hrp = character:FindFirstChild("HumanoidRootPart")
+            if hrp then hrp.CFrame = hrp.CFrame - Vector3.new(0, 13, 0) end
+            isFigureGodModeActive = false; notify("Figure GodMode Deactivated", 2, "Success")
+        end)
+    end
+
+    function checkFigureDistance()
+        if not figureGodModeEnabled then return end
+        safeCall(function()
+            local character = LocalPlayer.Character; if not character then return end
+            local hrp = character:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+            local figureNearby = false
+            for _, room in pairs(workspace.CurrentRooms:GetChildren()) do
+                local setup = room:FindFirstChild("FigureSetup")
+                if setup then
+                    local rig = setup:FindFirstChild("FigureRig")
+                    if rig then
+                        local pos = getFigurePosition(rig)
+                        if pos and (hrp.Position - pos).Magnitude <= 30 then figureNearby = true; break end
+                    end
+                end
+            end
+            if figureNearby and not isFigureGodModeActive then enableFigureGodMode(character)
+            elseif not figureNearby and isFigureGodModeActive then disableFigureGodMode(character)
+            end
+        end)
+    end
+
+    UniversalBox:AddToggle("FigureGodMode", {
+        Text = "Figure GodMode", Default = false,
+        Tooltip = "Fly above Figure when it's nearby",
+        Callback = function(enabled)
+            safeCall(function()
+                figureGodModeEnabled = enabled
+                if enabled then
+                    figureGodModeLoop = task.spawn(function()
+                        while figureGodModeEnabled do task.wait(0.1); checkFigureDistance() end
+                    end)
+                else
+                    if figureGodModeLoop then task.cancel(figureGodModeLoop); figureGodModeLoop = nil end
+                    if isFigureGodModeActive then
+                        local character = LocalPlayer.Character
+                        if character then disableFigureGodMode(character) end
+                    end
+                end
+            end)
+        end,
+    })
+
+    LocalPlayer.CharacterAdded:Connect(function()
+        safeCall(function() isFigureGodModeActive = false; disableFakeCamera() end)
+    end)
+end)
+
+-- =============================================================================
+_addPhase("UI - Universal", function()
+    -- Anti-Dupe
+    local antiDupeEnabled = false; local disabledDupeCollisions = {}
+    UniversalBox:AddToggle("AntiDupe", {
+        Text = "Anti-Dupe", Default = false, Tooltip = "Disables dupe room collisions",
+        Callback = function(enabled)
+            safeCall(function()
+                antiDupeEnabled = enabled
+                local function processRoom(room)
+                    safeCall(function()
+                        local sideroomSpace = room:FindFirstChild("SideroomSpace")
+                        if sideroomSpace then
+                            local collision = sideroomSpace:FindFirstChild("Collision")
+                            if collision and collision:IsA("BasePart") and collision.CanCollide then
+                                collision.CanCollide = false; collision.CanQuery = false; collision.CanTouch = false
+                                if not table.find(disabledDupeCollisions, collision) then table.insert(disabledDupeCollisions, collision) end
+                            end
+                        end
+                        local sideroomDupe = room:FindFirstChild("SideroomDupe")
+                        if sideroomDupe then
+                            local doorFake = sideroomDupe:FindFirstChild("DoorFake")
+                            if doorFake then
+                                local hidden = doorFake:FindFirstChild("Hidden")
+                                if hidden and hidden:IsA("BasePart") and hidden.CanCollide then
+                                    hidden.CanCollide = false; hidden.CanQuery = false; hidden.CanTouch = false
+                                    if not table.find(disabledDupeCollisions, hidden) then table.insert(disabledDupeCollisions, hidden) end
+                                end
+                            end
+                            for _, part in pairs(sideroomDupe:GetDescendants()) do
+                                if part:IsA("BasePart") and part.Name:lower():find("collision") then part:Destroy() end
+                            end
+                        end
+                    end, "Anti-Dupe - Room")
+                end
+                if enabled then
+                    for _, room in pairs(workspace.CurrentRooms:GetChildren()) do processRoom(room) end
+                    task.spawn(function()
+                        while antiDupeEnabled do task.wait(0.5); for _, room in pairs(workspace.CurrentRooms:GetChildren()) do processRoom(room) end end
+                    end)
+                else
+                    for _, part in pairs(disabledDupeCollisions) do
+                        safeCall(function()
+                            if part and part.Parent then part.CanCollide = true; part.CanQuery = true; part.CanTouch = true end
+                        end, "Re-enable Dupe Collisions")
+                    end
+                    disabledDupeCollisions = {}
+                end
+            end, "Anti-Dupe Toggle")
+        end,
+    })
+
+    -- Object Bypass
+    objectBypassEnabled = false; local disabledObjects = {}
+    UniversalBox:AddToggle("ObjectBypass", {
+        Text = "Object Bypass", Default = Settings.objectBypass,
+        Tooltip = "Disables chandeliers and animated obstacles",
+        Callback = function(enabled)
+            safeCall(function()
+                objectBypassEnabled = enabled; Settings.objectBypass = enabled
+                local function processRoom(room)
+                    safeCall(function()
+                        local assets = room:FindFirstChild("Assets"); if not assets then return end
+                        for _, chandelier in pairs(assets:GetChildren()) do
+                            if chandelier.Name == "ChandelierObstruction" then
+                                local collision = chandelier:FindFirstChild("Collision")
+                                if collision and collision.CanTouch then
+                                    collision.CanTouch = false; collision.CanQuery = false
+                                    if not table.find(disabledObjects, collision) then table.insert(disabledObjects, collision) end
+                                end
+                            end
+                        end
+                        for _, object in pairs(assets:GetDescendants()) do
+                            if object:IsA("Model") and object:GetAttribute("LoadModule") == "AnimatedObstacleKill" then
+                                for _, part in pairs(object:GetDescendants()) do
+                                    if part:IsA("BasePart") and part.CanTouch then
+                                        part.CanTouch = false; part.CanQuery = false
+                                        if not table.find(disabledObjects, part) then table.insert(disabledObjects, part) end
+                                    end
+                                end
+                            end
+                        end
+                    end, "Object Bypass - Room")
+                end
+                if enabled then
+                    for _, room in pairs(workspace.CurrentRooms:GetChildren()) do processRoom(room) end
+                    task.spawn(function()
+                        while objectBypassEnabled do task.wait(0.5); for _, room in pairs(workspace.CurrentRooms:GetChildren()) do processRoom(room) end end
+                    end)
+                else
+                    for _, part in pairs(disabledObjects) do
+                        safeCall(function()
+                            if part and part.Parent then part.CanTouch = true; part.CanQuery = true end
+                        end, "Re-enable Objects")
+                    end
+                    disabledObjects = {}
+                end
+            end, "Object Bypass Toggle")
+        end,
+    })
+
+    -- No Acceleration
+    noAccelEnabled = false; noAccelLoop = nil; originalHrpProps = nil
+    UniversalBox:AddToggle("NoAccel", {
+        Text = "No Acceleration", Default = Settings.noAccel,
+        Tooltip = "Removes movement acceleration",
+        Callback = function(enabled)
+            safeCall(function()
+                noAccelEnabled = enabled; Settings.noAccel = enabled
+                if enabled then
+                    local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+                    local hrp = Character:FindFirstChild("HumanoidRootPart")
+                    if hrp then originalHrpProps = hrp.CustomPhysicalProperties; hrp.CustomPhysicalProperties = PhysicalProperties.new(100, 0.7, 0, 1, 1) end
+                    noAccelLoop = task.spawn(function()
+                        while noAccelEnabled do
+                            task.wait(0.5)
+                            safeCall(function()
+                                local Char = LocalPlayer and LocalPlayer.Character
+                                if Char then
+                                    local h = Char:FindFirstChild("HumanoidRootPart")
+                                    if h then
+                                        local cpp = h.CustomPhysicalProperties
+                                        if not cpp or cpp.Density ~= 100 then h.CustomPhysicalProperties = PhysicalProperties.new(100, 0.7, 0, 1, 1) end
+                                    end
+                                end
+                            end, "No Accel Loop")
+                        end
+                    end)
+                else
+                    if noAccelLoop then task.cancel(noAccelLoop); noAccelLoop = nil end
+                    local Char = LocalPlayer and LocalPlayer.Character
+                    if Char then
+                        local h = Char:FindFirstChild("HumanoidRootPart")
+                        if h then h.CustomPhysicalProperties = originalHrpProps end
+                    end
+                    originalHrpProps = nil
+                end
+            end, "No Acceleration Toggle")
+        end,
+    })
+
+    -- Entity Pathing
+    entityPathingEnabled = false; local savedNodesFolder = nil
+    function setupPathfindNodes()
+        safeCall(function()
+            local currentRooms = workspace:FindFirstChild("CurrentRooms"); if not currentRooms then return end
+            if not savedNodesFolder then
+                savedNodesFolder = workspace:FindFirstChild("Saved_ZeScriptNodes")
+                if not savedNodesFolder then
+                    savedNodesFolder = Instance.new("Folder"); savedNodesFolder.Name = "Saved_ZeScriptNodes"; savedNodesFolder.Parent = workspace
+                end
+            end
+            for _, room in pairs(currentRooms:GetChildren()) do
+                safeCall(function()
+                    if room:IsA("Model") then
+                        local pathfindNodes = room:FindFirstChild("PathfindNodes")
+                        if pathfindNodes then
+                            local roomNodeName = "Room_" .. room.Name .. "_Nodes"
+                            if not savedNodesFolder:FindFirstChild(roomNodeName) then
+                                local clonedFolder = pathfindNodes:Clone(); clonedFolder.Name = roomNodeName
+                                for _, part in pairs(clonedFolder:GetDescendants()) do
+                                    if part:IsA("BasePart") then part.Transparency = entityPathingEnabled and 0 or 1 end
+                                end
+                                clonedFolder.Parent = savedNodesFolder
+                            end
+                        end
+                    end
+                end, "Setup Pathfind Nodes - Room " .. tostring(room.Name))
+            end
+        end, "Setup Pathfind Nodes Main")
+    end
+    setupPathfindNodes()
+    task.spawn(function() while true do task.wait(1); setupPathfindNodes() end end)
+
+    UniversalBox:AddToggle("EntityPathing", {
+        Text = "Entity Pathing", Default = false, Tooltip = "Shows entity path nodes",
+        Callback = function(enabled)
+            safeCall(function()
+                entityPathingEnabled = enabled
+                if savedNodesFolder then
+                    for _, nodeFolder in pairs(savedNodesFolder:GetChildren()) do
+                        for _, part in pairs(nodeFolder:GetDescendants()) do
+                            if part:IsA("BasePart") then part.Transparency = enabled and 0 or 1 end
+                        end
+                    end
+                    notify(enabled and "Entity pathing nodes now visible!" or "Entity pathing nodes hidden", 2, enabled and "Success" or "Warning")
+                else
+                    notify("No pathfind nodes found yet", 2, "Warning")
+                end
+            end, "Entity Pathing Toggle")
+        end,
+    })
+
+    -- Auto Finish Daily Run
+    local autoFinishDailyEnabled = false; autoFinishDailyLoop = nil
+    UniversalBox:AddToggle("AutoFinishDaily", {
+        Text = "Auto Finish Daily Run", Default = false,
+        Tooltip = "Automatically finds and teleports to the daily run exit",
+        Callback = function(enabled)
+            safeCall(function()
+                autoFinishDailyEnabled = enabled
+                if enabled then
+                    notify("[Finish Daily Run]: Go through some rooms — it'll auto-finish everything else after some time", 8, "Warning")
+                    autoFinishDailyLoop = task.spawn(function()
+                        while autoFinishDailyEnabled do
+                            task.wait(1)
+                            safeCall(function()
+                                local Character = LocalPlayer and LocalPlayer.Character; if not Character then return end
+                                local hrp = Character:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+                                local currentRooms = workspace:FindFirstChild("CurrentRooms"); if not currentRooms then return end
+                                for _, room in pairs(currentRooms:GetChildren()) do
+                                    local rippleExitDoor = room:FindFirstChild("RippleExitDoor", true)
+                                    if rippleExitDoor then
+                                        local doorPart = rippleExitDoor:IsA("BasePart") and rippleExitDoor or rippleExitDoor:FindFirstChildWhichIsA("BasePart", true)
+                                        if doorPart then hrp.CFrame = doorPart.CFrame + Vector3.new(0, 3, 0); notify("Teleported to Daily Run Exit!", 3, "Success") end
+                                    end
+                                end
+                            end, "Auto Finish Daily Run Loop")
+                        end
+                    end)
+                else
+                    if autoFinishDailyLoop then task.cancel(autoFinishDailyLoop); autoFinishDailyLoop = nil end
+                end
+            end, "Auto Finish Daily Run Toggle")
+        end,
+    })
+
+    -- AntiCheat Manipulation
+    local anticheatManipEnabled = false; anticheatManipLoop = nil
+    local isAnticheatKeyHeld = false; local anticheatManipKey = Enum.KeyCode.T
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        safeCall(function()
+            if input.KeyCode == anticheatManipKey and not gameProcessed then isAnticheatKeyHeld = true end
+        end, "AntiCheat Manip Input Began")
+    end)
+    UserInputService.InputEnded:Connect(function(input, gameProcessed)
+        safeCall(function()
+            if input.KeyCode == anticheatManipKey then isAnticheatKeyHeld = false end
+        end, "AntiCheat Manip Input Ended")
+    end)
+    UniversalBox:AddToggle("AnticheatManip", {
+        Text = "AntiCheat Manipulation (Hold T)", Default = false,
+        Tooltip = "Uses the anticheat to teleport you forward — good for teleporting against tiny walls",
+        Callback = function(enabled)
+            safeCall(function()
+                anticheatManipEnabled = enabled
+                if enabled then
+                    anticheatManipLoop = task.spawn(function()
+                        while anticheatManipEnabled do
+                            task.wait(0.03)
+                            safeCall(function()
+                                if isAnticheatKeyHeld and LocalPlayer.Character then
+                                    LocalPlayer.Character:PivotTo(LocalPlayer.Character:GetPivot() + workspace.CurrentCamera.CFrame.LookVector * Vector3.new(1, 0, 1) * -100)
+                                end
+                            end, "AntiCheat Manip Loop")
+                        end
+                    end)
+                else
+                    if anticheatManipLoop then task.cancel(anticheatManipLoop); anticheatManipLoop = nil end
+                end
+            end, "AntiCheat Manipulation Toggle")
+        end,
+    })
+
+    -- Noclip
+    UniversalBox:AddToggle("Noclip", {
+        Text = "Noclip", Default = false,
+        Tooltip = "Attempts to bypass doors noclip anticheat, may be buggy",
+        Callback = function(enabled)
+            safeCall(function()
+                noclipEnabled = enabled
+
+                local function setupNoclipCharacter(character)
+                    if noclipSteppedConn then noclipSteppedConn:Disconnect(); noclipSteppedConn = nil end
+                    local humanoid = character:WaitForChild("Humanoid", 10) or character:FindFirstChildOfClass("Humanoid")
+                    local head = character:WaitForChild("Head", 10)
+                    if not humanoid or not head then return end
+                    local overlapParams = OverlapParams.new()
+                    overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+                    overlapParams.FilterDescendantsInstances = {character}
+                    noclipSteppedConn = RunService.Stepped:Connect(function()
+                        if not noclipEnabled then return end
+                        if not character or not character.Parent then
+                            if noclipSteppedConn then noclipSteppedConn:Disconnect(); noclipSteppedConn = nil end
+                            return
+                        end
+                        local partsInside = workspace:GetPartsInPart(head, overlapParams)
+                        local insideWall = false
+                        for _, part in ipairs(partsInside) do
+                            if part.CanCollide then insideWall = true; break end
+                        end
+                        if insideWall then
+                            noclipInsideWall = true
+                            humanoid.WalkSpeed = 2
+                            for _, part in ipairs(character:GetChildren()) do
+                                if part:IsA("BasePart") then part.CanCollide = false end
+                            end
+                        else
+                            noclipInsideWall = false
+                            humanoid.WalkSpeed = speedEnabled and speedValue or originalWalkSpeed
+                            for _, part in ipairs(character:GetChildren()) do
+                                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                                    part.CanCollide = true
+                                end
+                            end
+                        end
+                    end)
+                end
+
+                if enabled then
+                    -- Setup for current character
+                    if LocalPlayer.Character then
+                        task.spawn(setupNoclipCharacter, LocalPlayer.Character)
+                    end
+                    -- Re-setup on respawn
+                    if noclipCharConn then noclipCharConn:Disconnect() end
+                    noclipCharConn = LocalPlayer.CharacterAdded:Connect(function(character)
+                        if noclipEnabled then task.spawn(setupNoclipCharacter, character) end
+                    end)
+                    notify("Noclip enabled!", 3, "Success")
+                else
+                    if noclipSteppedConn then noclipSteppedConn:Disconnect(); noclipSteppedConn = nil end
+                    if noclipCharConn then noclipCharConn:Disconnect(); noclipCharConn = nil end
+                    noclipInsideWall = false
+                    -- Restore collision on current character
+                    local character = LocalPlayer.Character
+                    if character then
+                        local humanoid = character:FindFirstChildOfClass("Humanoid")
+                        if humanoid then humanoid.WalkSpeed = speedEnabled and speedValue or originalWalkSpeed end
+                        for _, part in ipairs(character:GetChildren()) do
+                            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                                part.CanCollide = true
+                            end
+                        end
+                    end
+                    notify("Noclip disabled.", 2, "Warning")
+                end
+            end, "Noclip Toggle")
+        end,
+    })
+end)
+
+-- =============================================================================
+_addPhase("InteractTab functions", function()
+    autoProxiEnabled = false; autoProxiInstant = Settings.autoProxiInstant
+    autoProxiKey = Enum.KeyCode[Settings.autoProxiKey] or Enum.KeyCode.R
+    isAutoProxiKeyHeld = false; autoProxiCooldowns = {}
+
+    local PROXI_BLACKLIST = { "close", "leave", "hide" }; local INTERACTION_LIMIT = 5
+
+    function shouldInteract(prompt)
+        if not prompt or not prompt.Enabled then return false end
+        local actionText = prompt.ActionText and prompt.ActionText:lower() or ""
+        for _, word in ipairs(PROXI_BLACKLIST) do
+            if actionText:find(word, 1, true) then return false end
+        end
+        if actionText:find("exit", 1, true) and not actionText:find("door", 1, true) then return false end
+        if prompt.ObjectText == "Painting" then return false end
+        local interactAttr = prompt:GetAttribute("Interactions" .. LocalPlayer.Name)
+        if interactAttr and interactAttr > INTERACTION_LIMIT then return false end
+        return true
+    end
+
+    function getPromptPosition(prompt)
+        local obj = prompt.Parent; if not obj then return nil end
+        if obj:IsA("BasePart") then return obj.Position end
+        local ok, pivot = pcall(function() return obj:GetPivot() end)
+        if ok and pivot then return pivot.Position end
+        local part = obj:FindFirstChildWhichIsA("BasePart", true)
+        return part and part.Position or nil
+    end
+
+    function firePrompt(prompt)
+        if autoProxiInstant and prompt.HoldDuration > 0 then
+            local orig = prompt.HoldDuration; prompt.HoldDuration = 0; fireproximityprompt(prompt)
+            task.delay(0.1, function() if prompt and prompt.Parent then prompt.HoldDuration = orig end end)
+        else
+            fireproximityprompt(prompt)
+        end
+    end
+
+    cachedPrompts = {}; promptCacheTime = 0
+
+    function rebuildPromptCache()
+        local newCache = {}
+        local sources = {}
+        local currentRooms = workspace:FindFirstChild("CurrentRooms")
+        if currentRooms then table.insert(sources, currentRooms) end
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        if playerGui then table.insert(sources, playerGui) end
+        for _, source in ipairs(sources) do
+            for _, obj in ipairs(source:GetDescendants()) do
+                if obj:IsA("ProximityPrompt") then table.insert(newCache, obj) end
+            end
+        end
+        cachedPrompts = newCache; promptCacheTime = tick()
+    end
+
+    function runAutoProxi()
+        safeCall(function()
+            local char = LocalPlayer.Character; if not char then return end
+            local hrp = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+            local playerPos = hrp.Position; local now = tick()
+            if now - promptCacheTime >= PROMPT_CACHE_TTL then rebuildPromptCache() end
+            local batch = {}
+            for _, obj in ipairs(cachedPrompts) do
+                if not obj or not obj.Parent then continue end
+                if not shouldInteract(obj) then continue end
+                local pos = getPromptPosition(obj); local maxDist = (obj.MaxActivationDistance or 10) + 4
+                if pos and (playerPos - pos).Magnitude > maxDist then continue end
+                local id = tostring(obj)
+                if autoProxiCooldowns[id] and (now - autoProxiCooldowns[id]) < 0.1 then continue end
+                autoProxiCooldowns[id] = now; table.insert(batch, obj)
+            end
+            local fired = 0
+            for _, prompt in ipairs(batch) do
+                if not prompt or not prompt.Parent then continue end
+                firePrompt(prompt); fired = fired + 1
+                if fired >= 5 then fired = 0; task.wait() end
+            end
+            for id, t in pairs(autoProxiCooldowns) do
+                if now - t > 5 then autoProxiCooldowns[id] = nil end
+            end
+        end, "Run Auto Proxi")
+    end
+
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        safeCall(function()
+            if input.KeyCode ~= autoProxiKey or gameProcessed then return end
+            isAutoProxiKeyHeld = true
+            if autoProxiEnabled then runAutoProxi() end
+        end, "Input Began")
+    end)
+    UserInputService.InputEnded:Connect(function(input, gameProcessed)
+        safeCall(function()
+            if input.KeyCode == autoProxiKey then isAutoProxiKeyHeld = false end
+        end, "Input Ended")
+    end)
+
+    autoProxiToggle = InteractBox:AddToggle("AutoProxi", {
+        Text = isMobile and "Loot Aura" or "Auto Proxi (Hold R)",
+        Default = Settings.autoProxi, Tooltip = "Hold R to auto interact with nearby prompts",
+        Callback = function(enabled)
+            safeCall(function()
+                autoProxiEnabled = enabled; Settings.autoProxi = enabled
+                autoProxiCooldowns = {}; cachedPrompts = {}; promptCacheTime = 0
+                if enabled then
+                    autoProxiLoop = task.spawn(function()
+                        while autoProxiEnabled do
+                            task.wait(0.1)
+                            if isMobile then
+                                autoProxiCooldowns = {}; promptCacheTime = 0; runAutoProxi()
+                            elseif isAutoProxiKeyHeld then
+                                autoProxiCooldowns = {}; promptCacheTime = 0; runAutoProxi()
+                            end
+                        end
+                    end)
+                else
+                    if autoProxiLoop then task.cancel(autoProxiLoop); autoProxiLoop = nil end
+                end
+            end, "Auto Proxi Toggle")
+        end,
+    })
+
+    -- Keybind hangs off the toggle (PC only) — Obsidian pattern
+    if not isMobile then
+        autoProxiToggle:AddKeyPicker("AutoProxiKey", {
+            Text = "Auto Proxi Key", Default = Settings.autoProxiKey, Mode = "Hold",
+        })
+        Library.Options.AutoProxiKey:OnChanged(function()
+            safeCall(function()
+                local keyName = Library.Options.AutoProxiKey.Value
+                autoProxiKey = Enum.KeyCode[keyName] or Enum.KeyCode.R
+                Settings.autoProxiKey = keyName
+            end, "Auto Proxi Keybind Changed")
+        end)
+    end
+
+    InteractBox:AddToggle("InstantInteract", {
+        Text = "Instant Interact", Default = Settings.autoProxiInstant,
+        Tooltip = "Bypass hold duration on prompts",
+        Callback = function(enabled)
+            safeCall(function()
+                autoProxiInstant = enabled; Settings.autoProxiInstant = enabled
+            end, "Instant Interact Toggle")
+        end,
+    })
+end)
+
+-- =============================================================================
+_addPhase("Floor - Hotel tab", function()
+    if currentFloor ~= "Hotel" then return end
+    local HotelTab = Window:AddTab("Hotel", "hotel")
+    local HotelBox = HotelTab:AddGroupbox({ Side = "Left", Name = "Hotel" })
+
+    local finishRoom100Enabled = false; local finishRoom100Loop = nil; local elevatorBreakerFound = false
+    HotelBox:AddToggle("FinishRoom100", {
+        Text = "Finish Room 100's Minigame", Default = false,
+        Tooltip = "Automatically completes the Room 100 electrical minigame",
+        Callback = function(enabled)
+            safeCall(function()
+                finishRoom100Enabled = enabled; elevatorBreakerFound = false
+                if enabled then
+                    notify("[Room 100 Minigame]: Searching for ElevatorBreaker...", 5, "Warning")
+                    finishRoom100Loop = task.spawn(function()
+                        local emptyFound = false
+                        while finishRoom100Enabled and not emptyFound do
+                            task.wait(0.1)
+                            safeCall(function()
+                                local currentRooms = workspace:FindFirstChild("CurrentRooms"); if not currentRooms then return end
+                                for _, room in pairs(currentRooms:GetChildren()) do
+                                    if room:FindFirstChild("ElevatorBreakerEmpty", true) then
+                                        emptyFound = true; notify("[Room 100]: ElevatorBreakerEmpty found! Waiting for transformation...", 3, "Success"); break
+                                    end
+                                end
+                            end, "Room 100 - Check for Empty")
+                        end
+                        while finishRoom100Enabled and not elevatorBreakerFound do
+                            task.wait(3)
+                            safeCall(function()
+                                local currentRooms = workspace:FindFirstChild("CurrentRooms"); if not currentRooms then return end
+                                for _, room in pairs(currentRooms:GetChildren()) do
+                                    local elevatorBreaker = room:FindFirstChild("ElevatorBreaker", true)
+                                    if elevatorBreaker then
+                                        elevatorBreakerFound = true; notify("[Room 100]: ElevatorBreaker found! Starting auto-complete...", 3, "Success"); task.wait(0.5)
+                                        local activatePrompt = elevatorBreaker:FindFirstChild("ActivateEventPrompt", true)
+                                        if activatePrompt and activatePrompt:IsA("ProximityPrompt") then
+                                            fireproximityprompt(activatePrompt); notify("[Room 100]: Activated event prompt!", 2, "Success")
+                                        end
+                                        break
+                                    end
+                                end
+                            end, "Room 100 - Check for Breaker")
+                        end
+                        while finishRoom100Enabled and elevatorBreakerFound do
+                            task.wait(1)
+                            safeCall(function()
+                                local RemotesFolder = ReplicatedStorage:WaitForChild("RemotesFolder")
+                                RemotesFolder:WaitForChild("EBF"):FireServer()
+                            end, "Room 100 - Fire EBF Remote")
+                        end
+                    end)
+                else
+                    if finishRoom100Loop then task.cancel(finishRoom100Loop); finishRoom100Loop = nil end
+                    elevatorBreakerFound = false
+                end
+            end, "Finish Room 100's Minigame Toggle")
+        end,
+    })
+
+    do
+        local CODE_LENGTH = 5; local CODES_PER_BATCH = 25; local SOLVER_DELAY = 0.01
+        local REQUIRED_DISTANCE = 25; local UPDATE_INTERVAL = 0.5
+        local room50SolverEnabled = false; local room50SolverLoop = nil
+        local currentHints = {}; local lastNotificationTime = 0
+
+        local function isInRoom50()
+            local cr = workspace:FindFirstChild("CurrentRooms"); return cr and cr:FindFirstChild("50") ~= nil
+        end
+        local function getRoom50Door()
+            local cr = workspace:FindFirstChild("CurrentRooms"); if not cr then return nil end
+            local room50 = cr:FindFirstChild("50"); return room50 and room50:FindFirstChild("Door")
+        end
+        local function isNearRoom50Door()
+            local character = LocalPlayer.Character; if not character then return false end
+            local hrp = character:FindFirstChild("HumanoidRootPart"); if not hrp then return false end
+            local door = getRoom50Door(); if not door then return false end
+            local doorPart = door:IsA("BasePart") and door or door:FindFirstChildWhichIsA("BasePart")
+            if not doorPart then return false end
+            return (hrp.Position - doorPart.Position).Magnitude <= REQUIRED_DISTANCE
+        end
+        local function getHintNumbers()
+            local hintNumbers = {}
+            local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui"); if not PlayerGui then return hintNumbers end
+            local PermUi = PlayerGui:FindFirstChild("PermUI"); if not PermUi then return hintNumbers end
+            local Hints = PermUi:FindFirstChild("Hints"); if not Hints then return hintNumbers end
+            for _, child in pairs(Hints:GetChildren()) do
+                if child:IsA("ImageLabel") and child.Name == "Icon" then
+                    local textLabel = child:FindFirstChildWhichIsA("TextLabel")
+                    if textLabel and textLabel.Text then
+                        local number = tonumber(textLabel.Text)
+                        if number ~= nil then table.insert(hintNumbers, number) end
+                    end
+                end
+            end
+            return hintNumbers
+        end
+        local function updateHints()
+            local newHints = getHintNumbers(); local hintsChanged = (#newHints ~= #currentHints)
+            if not hintsChanged then for i = 1, #newHints do if newHints[i] ~= currentHints[i] then hintsChanged = true; break end end end
+            if hintsChanged then currentHints = newHints; return true, newHints end
+            return false, currentHints
+        end
+        local function generateCodesFromHints(hintNumbers, count)
+            local codes = {}; if #hintNumbers == 0 then return codes end
+            for i = 1, count do
+                local code = ""
+                for j = 1, CODE_LENGTH do code = code .. tostring(hintNumbers[math.random(1, #hintNumbers)]) end
+                table.insert(codes, code)
+            end
+            return codes
+        end
+        local function tryCode(code)
+            safeCall(function()
+                local RemotesFolder = ReplicatedStorage:WaitForChild("RemotesFolder")
+                RemotesFolder:WaitForChild("PL"):FireServer(code)
+            end, "Try Code")
+        end
+        local function notify50(text, duration, notifType)
+            if tick() - lastNotificationTime < 2 then return end
+            lastNotificationTime = tick(); notify(text, duration, notifType)
+        end
+        local function startRoom50Solver()
+            safeCall(function()
+                if not isInRoom50() then notify50("[Room 50]: You're not in Room 50!", 5, "Warning"); room50SolverEnabled = false; return end
+                local hintsChanged, hints = updateHints()
+                if #hints == 0 then notify50("[Room 50]: No books collected! Collect at least one book first.", 5, "Warning"); room50SolverEnabled = false; return end
+                notify50(string.format("[Room 50]: Solver active! Found %d hints: [%s]", #hints, table.concat(hints, ", ")), 5, "Success")
+                local attemptCount = 0; local startTime = tick(); local lastProgressUpdate = tick(); local lastHintCheck = tick()
+                while room50SolverEnabled do
+                    if tick() - lastHintCheck >= UPDATE_INTERVAL then
+                        lastHintCheck = tick(); local changed, newHints = updateHints()
+                        if changed then notify50(string.format("[Room 50]: Hints updated! Now have %d hints: [%s]", #newHints, table.concat(newHints, ", ")), 3, "Success") end
+                    end
+                    if not isNearRoom50Door() then
+                        if tick() - lastProgressUpdate >= 5 then notify50("[Room 50]: Too far from door! Move closer.", 3, "Warning"); lastProgressUpdate = tick() end
+                        task.wait(1); continue
+                    end
+                    local codes = generateCodesFromHints(currentHints, CODES_PER_BATCH)
+                    for _, code in ipairs(codes) do
+                        if not room50SolverEnabled then break end; tryCode(code); attemptCount = attemptCount + 1
+                    end
+                    if attemptCount % 1000 == 0 then
+                        local elapsed = tick() - startTime; local rate = attemptCount / elapsed
+                        notify50(string.format("[Room 50]: Tried %d codes (%.0f/sec) | Hints: [%s]", attemptCount, rate, table.concat(currentHints, ", ")), 3, "Success")
+                    end
+                    task.wait(SOLVER_DELAY)
+                end
+            end, "Room 50 Solver Main")
+        end
+
+        HotelBox:AddToggle("Room50Solver", {
+            Text = "Room 50 Code Solver", Default = false,
+            Tooltip = "Auto-solves Room 50 code by randomly picking from hint numbers",
+            Callback = function(enabled)
+                safeCall(function()
+                    room50SolverEnabled = enabled
+                    if enabled then currentHints = {}; room50SolverLoop = task.spawn(startRoom50Solver)
+                    else
+                        if room50SolverLoop then task.cancel(room50SolverLoop); room50SolverLoop = nil end
+                        notify50("[Room 50]: Solver stopped", 2, "Warning")
+                    end
+                end, "Room 50 Solver Toggle")
+            end,
+        })
+    end
+end)
+
+-- =============================================================================
+_addPhase("Floor - Mines tab", function()
+    if currentFloor ~= "Mines" then return end
+    local MinesTab = Window:AddTab("Mines", "pickaxe")
+    local MinesBox = MinesTab:AddGroupbox({ Side = "Left", Name = "Mines" })
+    local ladderESP = {}
+
+    MinesBox:AddToggle("MinesAnticheat", {
+        Text = "Anticheat Bypass", Default = Settings.minesAnticheat, Tooltip = "Prevents ladder detection",
+        Callback = function(enabled)
+            safeCall(function()
+                bypassEnabled = enabled; Settings.minesAnticheat = enabled
+                if enabled then
+                    for _, room in pairs(workspace.CurrentRooms:GetChildren()) do
+                        safeCall(function()
+                            local ladder = room:FindFirstChild("Ladder", true)
+                            if ladder then
+                                local h = Instance.new("Highlight"); h.FillColor = Color3.fromRGB(0, 100, 255)
+                                h.OutlineColor = Color3.fromRGB(0, 150, 255); h.FillTransparency = 0.5
+                                h.OutlineTransparency = 0; h.Parent = ladder; table.insert(ladderESP, h)
+                            end
+                        end, "Mines Bypass - Ladder ESP")
+                    end
+                    bypassLoop = task.spawn(function()
+                        while bypassEnabled do
+                            task.wait(0.1)
+                            safeCall(function()
+                                local Character = LocalPlayer.Character
+                                if Character then
+                                    local climbingAttr = Character:GetAttribute("Climbing")
+                                    if climbingAttr == true then
+                                        notify("[Bypass]: Wait 2 seconds, don't move", 2, "Warning"); task.wait(0.5); Character:SetAttribute("Climbing", false)
+                                    end
+                                end
+                            end, "Mines Bypass Loop")
+                        end
+                    end)
+                else
+                    if bypassLoop then task.cancel(bypassLoop); bypassLoop = nil end
+                    for _, highlight in pairs(ladderESP) do
+                        safeCall(function() if highlight and highlight.Parent then highlight:Destroy() end end, "Remove Ladder ESP")
+                    end
+                    ladderESP = {}
+                end
+            end, "Mines Anticheat Bypass Toggle")
+        end,
+    })
+
+    local antiGiggleLoop = nil; local gigglePatched = {}
+    MinesBox:AddToggle("AntiGiggle", {
+        Text = "Anti Giggle", Default = false, Tooltip = "Disables GiggleCeiling hitbox detection",
+        Callback = function(enabled)
+            safeCall(function()
+                if enabled then
+                    gigglePatched = {}
+                    antiGiggleLoop = task.spawn(function()
+                        while enabled do
+                            safeCall(function()
+                                local currentRooms = workspace:FindFirstChild("CurrentRooms"); if not currentRooms then return end
+                                for _, room in pairs(currentRooms:GetChildren()) do
+                                    safeCall(function()
+                                        local giggleCeiling = room:FindFirstChild("GiggleCeiling", true)
+                                        if giggleCeiling then
+                                            local hitbox = giggleCeiling:FindFirstChild("Hitbox")
+                                            if hitbox and hitbox:IsA("BasePart") and not gigglePatched[hitbox] then
+                                                hitbox.CanQuery = false; hitbox.CanTouch = false; gigglePatched[hitbox] = true
+                                            end
+                                        end
+                                    end, "Anti Giggle - Room")
+                                end
+                            end, "Anti Giggle Loop")
+                            task.wait(1)
+                        end
+                    end)
+                    notify("Anti Giggle enabled!", 2, "Success")
+                else
+                    if antiGiggleLoop then task.cancel(antiGiggleLoop); antiGiggleLoop = nil end
+                    gigglePatched = {}; notify("Anti Giggle disabled.", 2, "Warning")
+                end
+            end, "Anti Giggle Toggle")
+        end,
+    })
+end)
+
+-- =============================================================================
+_addPhase("Floor - Backdoor tab", function()
+    if currentFloor ~= "Backdoor" then return end
+    local BackdoorTab = Window:AddTab("Backdoor", "door-open")
+    local BackdoorBox = BackdoorTab:AddGroupbox({ Side = "Left", Name = "Backdoor" })
+    local timerNotifyEnabled = false; local timerNotifyLoop = nil; local lastSeenMult = math.huge
+
+    BackdoorBox:AddToggle("TimerNotify", {
+        Text = "Timer Notify", Default = false,
+        Tooltip = "Notifies every time the Backdoor timer crosses a multiple of 5 seconds",
+        Callback = function(enabled)
+            safeCall(function()
+                timerNotifyEnabled = enabled
+                if enabled then
+                    lastSeenMult = math.huge
+                    timerNotifyLoop = task.spawn(function()
+                        while timerNotifyEnabled do
+                            task.wait(0.25)
+                            safeCall(function()
+                                local floorReplicated = ReplicatedStorage:FindFirstChild("FloorReplicated"); if not floorReplicated then return end
+                                local digitalTimer = floorReplicated:FindFirstChild("DigitalTimer"); if not digitalTimer then return end
+                                local rawValue = digitalTimer.Value; local currentMult = math.floor(rawValue / 5) * 5
+                                if currentMult ~= lastSeenMult then
+                                    if currentMult < lastSeenMult then
+                                        local notifType = currentMult <= 10 and "Error" or currentMult <= 25 and "Warning" or "Success"
+                                        notify("⏱ Time left: " .. tostring(currentMult), 3, notifType)
+                                    end
+                                    lastSeenMult = currentMult
+                                end
+                            end, "Timer Notify Loop")
+                        end
+                    end)
+                    notify("Timer Notify enabled!", 2, "Success")
+                else
+                    if timerNotifyLoop then task.cancel(timerNotifyLoop); timerNotifyLoop = nil end
+                    lastSeenMult = math.huge; notify("Timer Notify disabled.", 2, "Warning")
+                end
+            end, "Timer Notify Toggle")
+        end,
+    })
+end)
+
+-- =============================================================================
+_addPhase("Floor - Garden tab", function()
+    if currentFloor ~= "Garden" then return end
+    local GardenTab = Window:AddTab("Garden", "leaf")
+    local GardenBox = GardenTab:AddGroupbox({ Side = "Left", Name = "Garden" })
+
+    if hookSupported then
+        local antiSurgeEnabled = false; local surgeHookInitialized = false
+        GardenBox:AddToggle("AntiSurge", {
+            Text = "Anti Surge", Default = false,
+            Tooltip = "Blocks SurgeRemote FireServer calls on the Garden floor",
+            Callback = function(enabled)
+                safeCall(function()
+                    antiSurgeEnabled = enabled
+                    if enabled and not surgeHookInitialized then
+                        local ok, err = pcall(function()
+                            local SurgeRemote = ReplicatedStorage:WaitForChild("RemotesFolder"):WaitForChild("SurgeRemote", 10)
+                            if not SurgeRemote then error("SurgeRemote not found") end
+                            local hookfunc = hookfunction or replaceclosure
+                            if not hookfunc then error("No hook function available") end
+                            local oldSurgeCall
+                            oldSurgeCall = hookfunc(
+                                getrawmetatable(game).__namecall,
+                                function(self, ...)
+                                    local method = getnamecallmethod()
+                                    if method == "FireServer" and self == SurgeRemote and antiSurgeEnabled then return end
+                                    return oldSurgeCall(self, ...)
+                                end
+                            )
+                            surgeHookInitialized = true
+                        end)
+                        if ok then notify("✅ Anti Surge enabled!", 3, "Success")
+                        else antiSurgeEnabled = false; notify("❌ Anti Surge hook failed: " .. tostring(err), 6, "Error") end
+                    elseif not enabled then
+                        notify("Anti Surge disabled.", 2, "Warning")
+                    end
+                end, "Anti Surge Toggle")
+            end,
+        })
+    else
+        GardenBox:AddLabel("❌ Anti Surge — requires hook support (unsupported executor)")
+    end
+end)
+
+-- =============================================================================
+_addPhase("Floor - Party tab", function()
+    if currentFloor ~= "Party" then return end
+    local PartyTab  = Window:AddTab("Ranked", "party-popper")
+    local PartyBox  = PartyTab:AddGroupbox({ Side = "Left",  Name = "Ranked" })
+    local PartyBox2 = PartyTab:AddGroupbox({ Side = "Right", Name = "Items"  })
+
+    PartyBox:AddToggle("BoostpadReach", {
+        Text = "Boostpad Reach", Default = false, Tooltip = "Expands boostpad hitboxes to 25x25x25",
+        Callback = function(enabled)
+            safeCall(function()
+                local currentRooms = workspace:FindFirstChild("CurrentRooms")
+                if not currentRooms then notify("CurrentRooms not found", 3, "Error"); return end
+                for _, room in pairs(currentRooms:GetChildren()) do
+                    safeCall(function()
+                        local itemPads = room:FindFirstChild("ItemPads"); if not itemPads then return end
+                        for _, pad in pairs(itemPads:GetChildren()) do
+                            safeCall(function()
+                                local hitbox = pad:FindFirstChild("HitBox")
+                                if hitbox and hitbox:IsA("BasePart") then
+                                    hitbox.Size = enabled and Vector3.new(25, 25, 25) or Vector3.new(1, 1, 1)
+                                end
+                            end, "Boostpad Reach - HitBox")
+                        end
+                    end, "Boostpad Reach - Room")
+                end
+                notify(enabled and "Boostpad Reach enabled!" or "Boostpad Reach disabled.", 2, enabled and "Success" or "Warning")
+            end, "Boostpad Reach Toggle")
+        end,
+    })
+
+    local itemESPEnabled = false; local itemESPLoop = nil
+    PartyBox2:AddToggle("ItemESP", {
+        Text = "Item ESP", Default = false, Tooltip = "Highlights items in Drops (skips GoldPile)",
+        Callback = function(enabled)
+            safeCall(function()
+                itemESPEnabled = enabled
+                if not enabled then
+                    if itemESPLoop then task.cancel(itemESPLoop); itemESPLoop = nil end
+                    local drops = workspace:FindFirstChild("Drops")
+                    if drops then for _, obj in pairs(drops:GetDescendants()) do if obj:IsA("Highlight") and obj.Name == "ItemESP" then obj:Destroy() end end end
+                    return
+                end
+                itemESPLoop = task.spawn(function()
+                    while itemESPEnabled do
+                        safeCall(function()
+                            local drops = workspace:FindFirstChild("Drops"); if not drops then return end
+                            for _, obj in pairs(drops:GetChildren()) do
+                                if not obj:IsA("Model") then continue end
+                                if obj.Name == "GoldPile" then continue end
+                                local existing = obj:FindFirstChild("ItemESP")
+                                if not existing then
+                                    local h = Instance.new("Highlight"); h.Name = "ItemESP"
+                                    h.FillColor = Color3.fromRGB(0, 200, 255); h.OutlineColor = Color3.fromRGB(0, 150, 200)
+                                    h.FillTransparency = 0.4; h.OutlineTransparency = 0; h.Parent = obj
+                                end
+                            end
+                        end, "Item ESP Loop")
+                        task.wait(0.5)
+                    end
+                end)
+            end, "Item ESP Toggle")
+        end,
+    })
+end)
+
+-- =============================================================================
+_addPhase("Floor - Archives tab", function()
+    if currentFloor ~= "Archives" then return end
+    local ArchivesTab = Window:AddTab("Archives", "book-open")
+    local ArchivesBox = ArchivesTab:AddGroupbox({ Side = "Left", Name = "Archives" })
+
+    -- Anti Drones --
+    local antiDronesEnabled = false
+    ArchivesBox:AddToggle("AntiDrones", {
+        Text = "Anti Drones", Default = false,
+        Tooltip = "Makes drones unable to attack",
+        Callback = function(enabled)
+            safeCall(function()
+                antiDronesEnabled = enabled
+                if enabled then
+                    antiDronesLoop = task.spawn(function()
+                        while antiDronesEnabled do
+                            safeCall(function()
+                                for _, item in workspace:GetChildren() do
+                                    if item.Name == "Drones" then
+                                        for _, descendant in item:GetDescendants() do
+                                            if descendant.Name == "WalkedInto" and descendant:IsA("RemoteEvent") then
+                                                descendant:Destroy()
+                                            end
+                                        end
+                                    end
+                                end
+                            end, "Anti Drones Loop")
+                            task.wait(2.5)
+                        end
+                    end)
+                    notify("Anti Drones enabled!", 3, "Success")
+                else
+                    if antiDronesLoop then task.cancel(antiDronesLoop); antiDronesLoop = nil end
+                    notify("Anti Drones disabled.", 2, "Warning")
+                end
+            end, "Anti Drones Toggle")
+        end,
+    })
+
+    -- Auto Forgetmenots --
+    local TARGET_ANIM_ID = "126064614098558"
+    local function getHighestRoom()
+        local currentRooms = workspace:FindFirstChild("CurrentRooms"); if not currentRooms then return nil end
+        local highestNum = -1; local highestRoom = nil
+        for _, child in currentRooms:GetChildren() do
+            local num = tonumber(child.Name)
+            if num and num > highestNum then highestNum = num; highestRoom = child end
+        end
+        return highestRoom
+    end
+    local function isTargetAnimationPlaying()
+        local character = LocalPlayer.Character; if not character then return false end
+        local humanoid = character:FindFirstChildOfClass("Humanoid"); if not humanoid then return false end
+        local animator = humanoid:FindFirstChildOfClass("Animator"); if not animator then return false end
+        for _, track in animator:GetPlayingAnimationTracks() do
+            if track.Animation and string.find(track.Animation.AnimationId, TARGET_ANIM_ID) then return true end
+        end
+        return false
+    end
+
+    local autoForgetmenotsEnabled = false
+    ArchivesBox:AddToggle("AutoForgetmenots", {
+        Text = "Auto Forgetmenots", Default = false,
+        Tooltip = "Automatically skips forgetmenots minigame after entering its room",
+        Callback = function(enabled)
+            safeCall(function()
+                autoForgetmenotsEnabled = enabled
+                if enabled then
+                    autoForgetmenotsConn = RunService.Heartbeat:Connect(function()
+                        safeCall(function()
+                            if not autoForgetmenotsEnabled then return end
+                            if not isTargetAnimationPlaying() then return end
+                            local room = getHighestRoom(); if not room then return end
+                            local door = room:FindFirstChild("Door")
+                            local collision = door and door:FindFirstChild("Collision")
+                            local character = LocalPlayer.Character
+                            local hrp = character and character:FindFirstChild("HumanoidRootPart")
+                            if collision and hrp then hrp.CFrame = collision.CFrame end
+                        end, "Auto Forgetmenots Heartbeat")
+                    end)
+                    notify("Auto Forgetmenots enabled!", 3, "Success")
+                else
+                    if autoForgetmenotsConn then autoForgetmenotsConn:Disconnect(); autoForgetmenotsConn = nil end
+                    notify("Auto Forgetmenots disabled.", 2, "Warning")
+                end
+            end, "Auto Forgetmenots Toggle")
+        end,
+    })
+
+    -- Anti Alma --
+    local antiAlmaEnabled = false
+
+    local function processArchivesModel(model)
+        if not model:IsA("Model") then return end
+        if model.Name == "Alma" then
+            for _, descendant in model:GetDescendants() do
+                if descendant:IsA("RemoteEvent") then descendant:Destroy() end
+            end
+            model.DescendantAdded:Connect(function(descendant)
+                if antiAlmaEnabled and descendant:IsA("RemoteEvent") then
+                    descendant:Destroy()
+                end
+            end)
+        end
+    end
+
+    ArchivesBox:AddToggle("AntiAlma", {
+        Text = "Anti Alma", Default = false,
+        Tooltip = "Stops Alma from spawning",
+        Callback = function(enabled)
+            safeCall(function()
+                antiAlmaEnabled = enabled
+                if enabled then
+                    -- Process models already present
+                    for _, child in workspace:GetChildren() do
+                        pcall(processArchivesModel, child)
+                    end
+                    -- Monitor new models
+                    antiAlmaChildAddedConn = workspace.ChildAdded:Connect(function(child)
+                        if antiAlmaEnabled then pcall(processArchivesModel, child) end
+                    end)
+                    notify("Anti Alma enabled!", 3, "Success")
+                else
+                    if antiAlmaChildAddedConn then antiAlmaChildAddedConn:Disconnect(); antiAlmaChildAddedConn = nil end
+                    notify("Anti Alma disabled.", 2, "Warning")
+                end
+            end, "Anti Alma Toggle")
+        end,
+    })
+end)
+
+-- =============================================================================
+_addPhase("ESP vars & functions", function()
+    espEnabled = { Door = false, Objective = false, Entity = false, Player = false }; espHighlights = {}
+
+    function hasESPHighlight(obj, espName)
+        if not obj then return true end
+        for _, child in pairs(obj:GetChildren()) do
+            if (child:IsA("Highlight") or child:IsA("BillboardGui")) and child.Name == espName .. "ESP" then return true end
+        end
+        return false
+    end
+
+    function clearESP(espType)
+        safeCall(function()
+            if espHighlights[espType] then
+                for _, item in pairs(espHighlights[espType]) do if item and item.Parent then item:Destroy() end end
+                espHighlights[espType] = {}
+            end
+        end, "Clear ESP - " .. espType)
+    end
+
+    function addESPToObject(obj, espType, color, outlineColor, labelText)
+        safeCall(function()
+            if not obj or hasESPHighlight(obj, espType) then return end
+            if not espHighlights[espType] then espHighlights[espType] = {} end
+            local highlight = Instance.new("Highlight"); highlight.Name = espType .. "ESP"
+            highlight.FillColor = color; highlight.OutlineColor = outlineColor
+            highlight.FillTransparency = 0.5; highlight.OutlineTransparency = 0; highlight.Parent = obj
+            table.insert(espHighlights[espType], highlight)
+            if labelText then
+                local billboard = Instance.new("BillboardGui"); billboard.Name = espType .. "ESP"
+                billboard.AlwaysOnTop = true; billboard.Size = UDim2.new(0, 100, 0, 50)
+                billboard.StudsOffset = Vector3.new(0, 2, 0); billboard.Parent = obj
+                local textLabel = Instance.new("TextLabel"); textLabel.Size = UDim2.new(1, 0, 1, 0)
+                textLabel.BackgroundTransparency = 1; textLabel.Text = labelText; textLabel.TextColor3 = color
+                textLabel.TextStrokeTransparency = 0; textLabel.TextScaled = true; textLabel.Font = Enum.Font.GothamBold
+                textLabel.Parent = billboard; table.insert(espHighlights[espType], billboard)
+            end
+        end, "Add ESP - " .. espType)
+    end
+
+    function createDoorESP()
+        safeCall(function()
+            for _, room in pairs(workspace.CurrentRooms:GetChildren()) do
+                safeCall(function()
+                    local door = room:FindFirstChild("Door")
+                    if door and door:IsA("Model") then addESPToObject(door, "Door", Color3.fromRGB(0, 255, 0), Color3.fromRGB(0, 200, 0), nil) end
+                end, "Create Door ESP - Room")
+            end
+        end, "Create Door ESP")
+    end
+
+    function createObjectiveESP()
+        safeCall(function()
+            for _, room in pairs(workspace.CurrentRooms:GetChildren()) do
+                safeCall(function()
+                    for _, obj in pairs(room:GetDescendants()) do
+                        local nameMap = {
+                            KeyObtain = "Key", FuseObtain = "Fuse", FuseHolder = "Fuse",
+                            LiveHintBook = "Book", LeverForGate = "Lever",
+                            LiveBreakerPolePickup = "Breaker", TimerLever = "Timer", Padlock = "Lock",
+                        }
+                        local label = nameMap[obj.Name]
+                        if label then addESPToObject(obj, "Objective", Color3.fromRGB(255, 255, 0), Color3.fromRGB(200, 200, 0), label) end
+                    end
+                end, "Create Objective ESP - Room")
+            end
+        end, "Create Objective ESP")
+    end
+
+    function createEntityESP()
+        safeCall(function()
+            local entityMap = {
+                RushMoving   = { Color3.fromRGB(255, 0, 0),     Color3.fromRGB(200, 0, 0),     "RUSH"    },
+                AmbushMoving = { Color3.fromRGB(255, 100, 0),   Color3.fromRGB(200, 80, 0),    "AMBUSH"  },
+                Eyes         = { Color3.fromRGB(150, 0, 255),   Color3.fromRGB(120, 0, 200),   "EYES"    },
+                Halt         = { Color3.fromRGB(0, 200, 255),   Color3.fromRGB(0, 150, 200),   "HALT"    },
+                Screech      = { Color3.fromRGB(255, 255, 255), Color3.fromRGB(200, 200, 200), "SCREECH" },
+                A60          = { Color3.fromRGB(255, 50, 50),   Color3.fromRGB(200, 30, 30),   "A60"     },
+                A120         = { Color3.fromRGB(255, 50, 50),   Color3.fromRGB(200, 30, 30),   "A120"    },
+            }
+            for _, child in pairs(workspace:GetChildren()) do
+                safeCall(function()
+                    local info = entityMap[child.Name]
+                    if info and child:IsA("Model") then addESPToObject(child, "Entity", info[1], info[2], info[3]) end
+                end, "Create Entity ESP - Workspace Child")
+            end
+            for _, room in pairs(workspace.CurrentRooms:GetChildren()) do
+                safeCall(function()
+                    local figureSetup = room:FindFirstChild("FigureSetup")
+                    if figureSetup then
+                        local figureRig = figureSetup:FindFirstChild("FigureRig")
+                        if figureRig then addESPToObject(figureRig, "Entity", Color3.fromRGB(255, 0, 0), Color3.fromRGB(200, 0, 0), "FIGURE") end
+                    end
+                    local seekSetup = room:FindFirstChild("SeekSetup") or room:FindFirstChild("Seek")
+                    if seekSetup then
+                        local seekModel = seekSetup:FindFirstChild("SeekRig") or seekSetup:FindFirstChild("Seek") or seekSetup
+                        if seekModel and seekModel:IsA("Model") then addESPToObject(seekModel, "Entity", Color3.fromRGB(0, 0, 0), Color3.fromRGB(100, 100, 100), "SEEK") end
+                    end
+                    local assets = room:FindFirstChild("Assets")
+                    if assets then
+                        for _, obj in pairs(assets:GetChildren()) do
+                            if obj.Name == "Snare" then addESPToObject(obj, "Entity", Color3.fromRGB(255, 100, 100), Color3.fromRGB(200, 80, 80), "SNARE") end
+                        end
+                    end
+                end, "Create Entity ESP - Room")
+            end
+        end, "Create Entity ESP")
+    end
+
+    function cleanupDestroyedESP()
+        safeCall(function()
+            for espType, highlights in pairs(espHighlights) do
+                local validHighlights = {}
+                for _, item in pairs(highlights) do if item and item.Parent then table.insert(validHighlights, item) end end
+                espHighlights[espType] = validHighlights
+            end
+        end, "Cleanup Destroyed ESP")
+    end
+
+    function createPlayerESP()
+        safeCall(function()
+            for _, player in pairs(Players:GetPlayers()) do
+                safeCall(function()
+                    if player == Players.LocalPlayer then return end
+                    local char = player.Character
+                    if char then addESPToObject(char, "Player", Color3.fromRGB(255, 255, 255), Color3.fromRGB(200, 200, 200), player.Name) end
+                end, "Create Player ESP - " .. player.Name)
+            end
+        end, "Create Player ESP")
+    end
+
+    function startESPUpdateLoop()
+        if espUpdateLoop then task.cancel(espUpdateLoop) end
+        espUpdateLoop = task.spawn(function()
+            while espEnabled.Door or espEnabled.Objective or espEnabled.Entity or espEnabled.Player do
+                task.wait(0.5); cleanupDestroyedESP()
+                if espEnabled.Door      then createDoorESP()      end
+                if espEnabled.Objective then createObjectiveESP() end
+                if espEnabled.Entity    then createEntityESP()    end
+                if espEnabled.Player    then createPlayerESP()    end
+            end
+        end)
+    end
+end)
+
+-- =============================================================================
+_addPhase("UI - ESP & Display", function()
+    -- Multi-select dropdown for ESP types
+    -- Obsidian multi-dropdown Value is a dict {["Door"] = true, ["Entity"] = true, ...}
+    ESPBox:AddDropdown("ESPTypes", {
+        Text = "ESP Types", Values = { "Door", "Objective", "Entity", "Player" },
+        Multi = true, Tooltip = "Select ESP types to enable",
+        Callback = function(selected)
+            safeCall(function()
+                local types = {
+                    { key = "Door",      setting = "espDoor",     create = createDoorESP      },
+                    { key = "Objective", setting = "espObjective", create = createObjectiveESP },
+                    { key = "Entity",    setting = "espEntity",    create = createEntityESP    },
+                    { key = "Player",    setting = "espPlayer",    create = createPlayerESP    },
+                }
+                for _, t in ipairs(types) do
+                    local isSelected = selected[t.key] == true
+                    if isSelected and not espEnabled[t.key] then
+                        espEnabled[t.key] = true; Settings[t.setting] = true; t.create(); startESPUpdateLoop()
+                    elseif not isSelected and espEnabled[t.key] then
+                        espEnabled[t.key] = false; Settings[t.setting] = false; clearESP(t.key)
+                    end
+                end
+                if not espEnabled.Door and not espEnabled.Objective and not espEnabled.Entity and not espEnabled.Player then
+                    if espUpdateLoop then task.cancel(espUpdateLoop); espUpdateLoop = nil end
+                end
+            end, "ESP Dropdown")
+        end,
+    })
+
+    -- Entity Notifier
+    entityNotifierEnabled = false; local notifiedEntities = {}
+    ESPBox:AddToggle("EntityNotifier", {
+        Text = "Entity Notifier", Default = Settings.entityNotifier,
+        Tooltip = "Get notifications when entities spawn",
+        Callback = function(enabled)
+            safeCall(function()
+                entityNotifierEnabled = enabled; Settings.entityNotifier = enabled
+                if not enabled then notifiedEntities = {} end
+            end, "Entity Notifier Toggle")
+        end,
+    })
+    task.spawn(function()
+        local entityNotifyList = {
+            { name = "RushMoving",   text = "Rush is coming!",    type = "Error"   },
+            { name = "AmbushMoving", text = "Ambush is coming!",  type = "Error"   },
+            { name = "Eyes",         text = "Eyes has appeared!", type = "Error"   },
+            { name = "Halt",         text = "Halt has appeared!", type = "Warning" },
+        }
+        while true do
+            task.wait(0.5)
+            if entityNotifierEnabled then
+                safeCall(function()
+                    for _, e in ipairs(entityNotifyList) do
+                        local model = workspace:FindFirstChild(e.name)
+                        if model and not notifiedEntities[e.name] then
+                            notifiedEntities[e.name] = true; notify(e.text, 5, e.type)
+                        elseif not model and notifiedEntities[e.name] then
+                            notifiedEntities[e.name] = nil
+                        end
+                    end
+                end, "Entity Notifier Loop")
+            end
+        end
+    end)
+
+    -- FOV slider in Display tab
+    do
+        local desiredFOV = Settings.fov
+        local fovConnection = RunService.RenderStepped:Connect(function()
+            safeCall(function()
+                local camera = workspace.CurrentCamera
+                if camera and camera.FieldOfView ~= desiredFOV then camera.FieldOfView = desiredFOV end
+            end, "FOV RenderStepped")
+        end)
+        DisplayBox:AddSlider("FOV", {
+            Text = "FOV", Min = 70, Max = 120, Default = Settings.fov, Rounding = 0,
+            Tooltip = "Adjust field of view",
+            Callback = function(value)
+                safeCall(function() desiredFOV = value; Settings.fov = value end, "FOV Slider")
+            end,
+        })
+        getgenv()._ZeScriptFovConn = fovConnection
+    end
+end)
+
+-- =============================================================================
+_addPhase("Settings UI", function()
+    SettingsBox:AddToggle("AutoLoad", {
+        Text = "Auto Load Settings", Default = Settings.autoLoad,
+        Tooltip = "Automatically load settings on script start",
+        Callback = function(enabled)
+            safeCall(function() Settings.autoLoad = enabled; saveSettings() end, "Auto Load Settings Toggle")
+        end,
+    })
+    SettingsBox:AddButton("Save Settings", function()
+        safeCall(function()
+            if saveSettings() then notify("Settings saved!", 2, "Success")
+            else notify("Failed to save settings", 2, "Error") end
+        end, "Save Settings Button")
+    end)
+    SettingsBox:AddButton("Load Settings", function()
+        safeCall(function()
+            if loadSettings() then notify("Settings loaded!", 3, "Success")
+            else notify("No saved settings found", 2, "Warning") end
+        end, "Load Settings Button")
+    end)
+    SettingsBox:AddButton("Hide UI", function()
+        safeCall(function() Window:Toggle(false) end, "Hide UI Button")
+    end)
+    SettingsBox:AddButton({
+        Text = "Destroy Script", Risky = true,
+        Func = function() destroyScript() end,
+    })
+    SettingsBox:AddButton({
+        Text = "Reset All Settings", Risky = true,
+        Func = function()
+            safeCall(function()
+                Settings = {
+                    spoofCrouch = false, antiEyes = false, disableScreech = false,
+                    disableSnare = false, objectBypass = false, noAccel = false,
+                    autoProxi = false, autoProxiInstant = true, autoProxiKey = "R",
+                    proximityReach = 0, doorReach = false, doorReachDistance = 25,
+                    antiSpeedBypass = false, speed = false, speedValue = 16,
+                    minesAnticheat = false, espDoor = false, espObjective = false,
+                    espEntity = false, entityNotifier = false, fullbright = false,
+                    fov = 70, theme = "Default", autoLoad = false, godMode = false
+                }
+                notify("Settings reset!", 2, "Success")
+            end, "Reset All Settings Button")
+        end,
+    })
+
+    SettingsInfoBox:AddLabel("ZeScript Doors v1.8 (Obsidian UI)")
+    SettingsInfoBox:AddLabel("Floor: " .. currentFloor)
+end)
+
+-- =============================================================================
+_addPhase("Destroy function", function()
+    function destroyScript()
+        safeCall(function()
+            if lightingConnection then lightingConnection:Disconnect() end
+            if getgenv()._ZeScriptFovConn then getgenv()._ZeScriptFovConn:Disconnect() end
+            if autoForgetmenotsConn then autoForgetmenotsConn:Disconnect(); autoForgetmenotsConn = nil end
+            if antiAlmaChildAddedConn then antiAlmaChildAddedConn:Disconnect(); antiAlmaChildAddedConn = nil end
+            if scribblesChildAddedConn then scribblesChildAddedConn:Disconnect(); scribblesChildAddedConn = nil end
+            if noclipSteppedConn then noclipSteppedConn:Disconnect(); noclipSteppedConn = nil end
+            if noclipCharConn then noclipCharConn:Disconnect(); noclipCharConn = nil end
+            local loops = {
+                spoofCrouchLoop, antiEyesLoop, antiSpeedLoop, bypassLoop, speedLoop,
+                noAccelLoop, autoProxiLoop, doorReachLoop, espUpdateLoop,
+                godModeDistanceLoop, figureGodModeLoop, antiGKLoop,
+                anticheatManipLoop, autoFinishDailyLoop, antiDronesLoop
+            }
+            for _, loop in ipairs(loops) do if loop then pcall(task.cancel, loop) end end
+            if godModeConnection then godModeConnection:Disconnect() end
+            clearESP("Door"); clearESP("Objective"); clearESP("Entity")
+            local Character = LocalPlayer and LocalPlayer.Character
+            if Character then
+                local Humanoid = Character:FindFirstChild("Humanoid")
+                if Humanoid then Humanoid.WalkSpeed = originalWalkSpeed end
+                local hrp = Character:FindFirstChild("HumanoidRootPart")
+                if hrp then hrp.CustomPhysicalProperties = originalHrpProps end
+                if clonedCollision then clonedCollision:Destroy() end
+                if godModeEnabled then restoreOriginalGodMode(Character) end
+            end
+            if fullbrightEnabled then
+                local Lighting = game:GetService("Lighting")
+                for property, value in pairs(originalLighting) do Lighting[property] = value end
+            end
+            if screechDisabled and screechOriginalParent then
+                local screech = ReplicatedStorage.Entities:FindFirstChild("Screech")
+                if screech then screech.Parent = screechOriginalParent end
+            end
+            getgenv().ZeScriptLoaded = false; getgenv()._ZeScriptFovConn = nil
+            notify("Script destroyed!", 3, "Warning")
+            task.wait(0.5); pcall(function() Window:Destroy() end)
+        end, "Destroy Script")
+    end
+end)
+
+-- =============================================================================
+_addPhase("Auto load", function()
+    if Settings.autoLoad then
+        local loaded = loadSettings()
+        if loaded then notify("Auto-loaded settings!", 2, "Success") end
+    end
+end)
+
+task.spawn(_runPhases)
